@@ -1,267 +1,121 @@
 # MediTrack
 
-A full-stack medicine tracker and reminder web application for managing medications, schedules, dose logs, and real-time background reminders.
+A full-stack medication tracker and reminder application designed to simplify personal care plan management. 
 
-MediTrack uses **Upstash QStash** as a scheduler and **Web Push** as the delivery mechanism to send background push notifications to users even when their browser or application page is completely closed.
+MediTrack allows users to schedule medications, log daily doses, track adherence, and receive background reminders through browser push notifications even when the web application is closed.
+
+---
+
+## Overview
+
+MediTrack provides a clean and secure interface to coordinate daily medication schedules. The platform focuses on user care plan tracking by offering:
+- **Care Plan Customization**: Users define medication details, colors, dosages, and schedules.
+- **Log Management**: A clear dashboard interface to log doses as taken, undo logs to correct errors, and track history.
+- **Background Deliveries**: Background reminders notify users at the exact scheduled local time via browser notifications.
+- **Adherence Insights**: Live streaks and completion calculations directly display progress on the dashboard.
+- **Universal Layout**: Optimized for desktop sidebar workflows and installable mobile Progressive Web App (PWA) drawer experiences.
 
 ---
 
 ## Features
 
-### Authentication
-- Built with **Better Auth**
-- Email/Password user registration
-- Email/Password login validation
-- Server-side session verification on pages and API handlers
-- Secure sign-out
+### Medication & Care Plan Management
+- **Add Medications**: Record name, dosage, frequency description, custom instructions, and custom color identifiers.
+- **Archive Medications**: Hide completed or changed medications without deleting historical dose logs.
+- **Schedule Times**: Bind medications to specific daily target times. Reminders are calculated relative to the user's selected local timezone.
 
-### Medication Management
-- Create and edit medications (Name, Dosage, Frequency, Time, Instructions, and Visual Colors)
-- Archive active medications to cancel future tracking without losing logged history
-- Authoritative validation of medication ownership per user
-- Dose tracking (Log dose as taken, or undo dose logs)
+### Dose Tracking & History
+- **Single-Tap Logs**: Mark scheduled medications as taken directly from the dashboard view.
+- **Dose Undo**: Revert accidental logs to keep records accurate.
+- **Searchable History**: Review all logged doses over time with a search filter.
 
-### Medication Scheduling & Reminders
-- Schedule medication times (interpreted in the user's local timezone)
-- Automatically compute next occurrences in local timezone and schedule in UTC via QStash
-- Reschedule reminders on medication schedule changes
-- Automated cancellation of pending reminders when medications are archived or disabled
+### Background Reminders
+- **Background Delivery**: Reminders are delivered outside the active tab, allowing users to stay informed even when the app is closed.
+- **VAPID Subscriptions**: Users register multiple browser instances or devices to receive push events.
+- **Stale Subscription Pruning**: Expired browser endpoints (HTTP 404/410) are removed from the database to keep delivery loops clean.
 
-### Interactive Dashboard
-- Medication list and completion status for the current day
-- Adherence overview cards (completion rates, streak tracker)
-- Medication history logs with text search
-- Modern, fully responsive, fluid layout for mobile and desktop screens
+### Dynamic Themes & PWA
+- **Theme Selection**: Seamless support for Light, Dark, and System color preferences.
+- **Installable PWA**: Register and install the application as a standalone app on supported mobile and desktop browsers.
+- **Action Links**: Tapping notifications launches the application and redirects the user directly to their medicines list.
 
-### Background Notifications & Settings
-- Browser push notification permission flow
-- Manage Web Push subscriptions per device
-- Stale/expired device subscription cleanup (automatically prunes HTTP 404/410 endpoints)
-- Dedicated settings panel showing real-time configuration status of VAPID settings and device registrations
-- Custom timezone selector for reminders
-
-### Progressive Web App (PWA)
-- Installable PWA with full web app manifest (`manifest.webmanifest`)
-- Custom service worker (`sw.js`) containing static asset caching and offline status detection
-- Custom service worker push listener and `notificationclick` handler to focus the active app tab or navigate to `/medicines` on click
-
-### Color Themes
-- System, Light, and Dark themes
-- OS preference sync via `window.matchMedia`
-- Persistent selection storage via LocalStorage
-
----
-
-## Tech Stack
-
-- **Core Framework:** Next.js (App Router)
-- **Language:** TypeScript
-- **Styling:** CSS variables + Tailwind CSS
-- **Authentication:** Better Auth
-- **Database Connection:** Neon PostgreSQL client (`pg`)
-- **ORM:** Drizzle ORM
-- **Scheduler:** Upstash QStash
-- **Push Delivery:** Web Push (`web-push`)
-- **PWA:** Service Worker API
+### Secure Accounts
+- **Registration & Login**: Secure account creation with email and password.
+- **Private Data Workspace**: Separate user dashboards ensure users only access and modify their own medication records.
 
 ---
 
 ## Reminder Architecture
 
-MediTrack avoids polling loops, memory timeouts (`setInterval`), and costly Vercel Cron rules. Reminders are managed via a serverless-compatible push delivery flow:
+MediTrack uses a serverless-friendly, push-based reminder flow. Rather than running persistent, polling background tasks, the system schedules reminders on demand:
 
-```
-User creates/saves medication schedule
-   │
-   ▼
-Neon / Drizzle ORM stores schedule
-   │
-   ▼
-Reminder Scheduler computes local target -> UTC Epoch
-   │
-   ▼
-Upstash QStash schedules callback (`notBefore` UTC epoch)
-   │
-   ▼
-[Scheduled Date/Time arrives]
-   │
-   ▼
-QStash invokes /api/reminders/send with HMAC Signature
-   │
-   ▼
-API Route validates signature -> claims status atomically
-   │
-   ▼
-Web Push client signs payload with VAPID Private Key
-   │
-   ▼
-Browser Push Service delivers payload to User Device
-   │
-   ▼
-Service Worker receives 'push' -> displays notification
-```
-
-Reminders function when the web application is closed. Background delivery relies on browser/device Web Push API support, active device notification permissions, and network connectivity.
+1. **Schedule Registration**: When a user creates a medication, the system calculates the local target time and converts it to a UTC epoch.
+2. **Background Queue**: A callback payload is registered with **Upstash QStash** containing the target UTC execution timestamp.
+3. **Trigger Event**: At the exact UTC time, QStash calls the MediTrack reminders endpoint.
+4. **Signature Verification**: The API route verifies the request's HMAC signature using signing keys to reject public requests.
+5. **State Claim**: The system validates the medication's active status and ownership, then atomically claims the reminder.
+6. **Push Event**: The server signs the reminder payload with a **VAPID Private Key** and forwards it to the browser push service.
+7. **Service Worker Delivery**: The browser's active service worker catches the push event, displays the notification, and handles click navigation.
+8. **Chained Recurrence**: After delivery, the system schedules the next daily occurrence.
 
 ---
 
-## Reminder Reliability & State Machine
+## Reliability & Fault Tolerance
 
-Every reminder undergoes a robust, crash-resilient transactional flow in the database to prevent duplicate notifications while ensuring reliable retries.
+The reminder delivery pipeline uses a database-backed state machine to handle network errors, server crashes, and duplicate events:
 
-### States
-- `pending`: Registered in DB; QStash scheduled callback has not yet fired.
-- `processing`: QStash fired and a serverless instance has atomically claimed the task.
-- `delivered`: Push notifications successfully completed and logged in-app; next occurrence is queued.
-- `failed`: All push notifications failed due to transient issues; QStash will retry.
-- `cancelled`: Medication has been archived or disabled. Callback will be skipped immediately.
-
-### Reliability Guarantees
-- **Atomic Claims**: The API route claims processing using an atomic update statement. If two identical requests run concurrently, only one transitions the row to `'processing'`, and the loser exits immediately with a `429` (concurrent retry) or `200` (already complete).
-- **Transient Failures**: If push delivery fails due to temporary gateway or connection issues, the row transitions to `'failed'` and returns `HTTP 500`. QStash catches this failure and schedules a retry with exponential backoff.
-- **Process Crash Recovery**: If a server instance crashes while in the `'processing'` state, the reminder status will remain unchanged. When QStash retries the message, the endpoint checks if the `'processing'` update timestamp is older than 2 minutes. If so, it classifies the job as stuck, resets it, and runs the delivery.
-- **At-Least-Once Semantics**: To ensure medication safety, reminders are transitioned to `'delivered'` *after* the push notifications successfully send. If a process crash occurs immediately after sending but before writing `'delivered'` to the database, a duplicate notification may be sent on retry. Notification tags are used to collapse duplicates on user devices.
+- **State Machine States**: Every occurrence moves through states: `pending` (scheduled), `processing` (currently delivering), `delivered` (successful push), `failed` (transient failure), or `cancelled` (archived).
+- **At-Least-Once Delivery**: To ensure users do not miss critical medication times, the status transitions to `delivered` *after* the push notifications are accepted by the push service.
+- **Crash Recovery**: If a server instance crashes during delivery, the reminder remains in `processing`. On the next QStash retry, the system detects if the `processing` state has been active for more than 2 minutes. If it has, it classifies the job as stuck, resets it, and retries the delivery.
+- **Duplicate Protection**: Concurrent executions are resolved through atomic database updates. The second attempt is rejected with a `429` status code, forcing QStash to retry later. If the database indicates that a reminder has already transitioned to `delivered` or `cancelled`, the request exits immediately with `200` to prevent duplicate alerts.
+- **Notification Collapsing**: Notifications are sent with an occurrence-specific `tag`. If a duplicate push is delivered, the user's operating system collapses the alerts, preventing multiple pop-ups.
 
 ---
 
-## Database Schema Overview
+## Technology Stack
 
-The database contains the following tables:
-- `user` / `session` / `account` / `verification` (Better Auth managed)
-- `medications`: Core medication detail and active state
-- `medicationSchedules`: Time of day and frequency guidelines
-- `medicationLogs`: Chronological record of logged/scheduled doses
-- `medicationReminders`: Tracks scheduled QStash callback ids, timestamps, and state machine status
-- `notifications`: History of in-app notifications
-- `pushSubscriptions`: Devices registered to receive Web Push notifications per user
-- `notificationSettings`: Preferences (reminders enabled, timezone, etc.)
-
----
-
-## Environment Variables
-
-Configure these variables in your `.env` or Vercel environment:
-
-| Variable | Required | Purpose |
-| :--- | :--- | :--- |
-| `DATABASE_URL` | Yes | Connection string to your Neon PostgreSQL database |
-| `BETTER_AUTH_SECRET` | Yes | Secret hash key for authentication tokens |
-| `BETTER_AUTH_URL` | Yes (Prod) | Canonical URL of the application |
-| `QSTASH_TOKEN` | Yes | Token used to authenticate requests to Upstash QStash |
-| `QSTASH_CURRENT_SIGNING_KEY` | Yes | Signing key to verify inbound QStash signatures |
-| `QSTASH_NEXT_SIGNING_KEY` | Yes | Rotated signing key for QStash signature verification |
-| `NEXT_PUBLIC_VAPID_PUBLIC_KEY`| Yes | VAPID public key exposed to client to subscribe device |
-| `VAPID_PRIVATE_KEY` | Yes | VAPID private key to sign Web Push payloads server-side |
-| `VAPID_SUBJECT` | Yes | VAPID contact identifier (e.g. `mailto:admin@example.com`) |
+| Technology | Purpose |
+| :--- | :--- |
+| **Next.js** | Full-stack React framework (App Router) |
+| **React** | Component-based user interface |
+| **TypeScript** | Type-safe application development |
+| **Tailwind CSS** | Styling and responsive design |
+| **Better Auth** | Authentication and session management |
+| **Neon PostgreSQL** | Serverless relational database |
+| **Drizzle ORM** | Schema definition and database queries |
+| **Upstash QStash** | Serverless message scheduling and queue |
+| **Web Push** | Standard browser push notifications |
 
 ---
 
-## Local Development
+## Application Architecture
 
-### Prerequisites
-- Node.js (v18+)
-- pnpm (recommended package manager)
-- A Neon PostgreSQL database instance
-- An Upstash account with QStash enabled
-- VAPID keys (Generate locally using `npx web-push generate-vapid-keys`)
-
-### Setup Instructions
-
-1. Clone the repository and navigate to the folder:
-   ```bash
-   git clone <repository-url>
-   cd meditrack
-   ```
-
-2. Install dependencies:
-   ```bash
-   pnpm install
-   ```
-
-3. Create a `.env` file in the root directory and populate the required variables as documented in the [Environment Variables](#environment-variables) section.
-
-4. Apply the database migrations:
-   ```bash
-   pnpm exec drizzle-kit migrate
-   ```
-
-5. Run the local Next.js development server:
-   ```bash
-   pnpm dev
-   ```
-
-6. Open [http://localhost:3000](http://localhost:3000) in your browser.
+The application is structured into the following layers:
+- **Presentation Layer**: React components handling state, layout routing, light/dark styling, and the PWA service worker.
+- **Business Logic Layer**: Server Actions managing medication mutations, logging, and timezone translation.
+- **Scheduling Layer**: Upstash QStash client delivering scheduled callbacks to verification middleware.
+- **Authentication Layer**: Better Auth handling login flows and verifying cookies/session headers.
+- **Persistence Layer**: Neon PostgreSQL database managed via Drizzle ORM schemas.
 
 ---
 
-## Database Migrations
+## Design & Branding
 
-MediTrack uses **Drizzle Kit** to manage schema changes. All migrations are tracked inside the `/migrations` folder.
-
-To apply migrations to your database during local setup or deployment pipelines:
-```bash
-pnpm exec drizzle-kit migrate
-```
-
-*Do not run manual DDL statements against the database or drop production tables.*
+- **Modern Interface**: Uses fluid grids, CSS variables, and Tailwind themes.
+- **Branded Assets**: Custom MediTrack logo marks are placed in sidebar headers and authentication views.
+- **Accessible Loading Screen**: The application features a server-rendered branded loading screen that matches the user's selected theme background. It center-aligns the logo icon, features an animated loading bar, and respects OS `prefers-reduced-motion` settings.
 
 ---
 
-## Deployment
+## Security & Privacy
 
-### Next.js App
-Deploy the repository directly on Vercel:
-1. Connect your GitHub repository to Vercel.
-2. Configure all environment variables listed in the [Environment Variables](#environment-variables) section in the project settings.
-3. Vercel will automatically build and deploy the App Router code.
-
-### QStash Callback Configuration
-- Verify `BETTER_AUTH_URL` is set to the canonical deployment URL (e.g., `https://your-app.vercel.app`).
-- When a medication is created, QStash will receive the callback target URL as `${BETTER_AUTH_URL}/api/reminders/send`.
+- **Server-Side Authorization**: Every action and database query checks the session user's ID against the target medication's owner ID.
+- **Credential Protection**: Database secrets, signing keys, and VAPID private keys are stored in secure environment variables and never exposed to the client.
+- **Callback Verification**: The reminder API endpoint enforces cryptographically signed HMAC signatures on all inbound QStash requests.
+- **Encrypted Payloads**: All Web Push notification payloads are encrypted using the browser's standard push protocol.
 
 ---
 
-## Project Structure
+## Project Status
 
-```
-├── app/
-│   ├── actions/          # Server Actions (medications.ts, notifications.ts, etc.)
-│   ├── api/
-│   │   ├── auth/         # Better Auth Next.js API catch-all
-│   │   └── reminders/
-│   │       └── send/     # QStash signature-verified delivery endpoint
-│   ├── dashboard-page.tsx
-│   ├── layout.tsx
-│   └── page.tsx
-├── components/           # Client/Server UI Components (MediTrackDashboard, theme widgets)
-├── lib/
-│   ├── db/               # Drizzle setup, Neon PostgreSQL connection, database schema
-│   ├── auth.ts           # Better Auth server configuration
-│   ├── qstash.ts         # Server-side QStash client utility
-│   ├── web-push.ts       # Server-side Web Push delivery utility
-│   └── reminder-scheduler.ts # Timezone-aware occurrence calculator & scheduler
-├── migrations/           # Drizzle SQL migration files
-├── public/
-│   ├── sw.js             # Service worker handling static assets and push listeners
-│   └── manifest.webmanifest # PWA properties and configuration
-├── package.json
-└── tsconfig.json
-```
-
----
-
-## Limitations & Notes
-
-- **iOS Support**: On iOS 16.4+, users must use the "Add to Home Screen" feature to enable Web Push notifications.
-- **Service Worker Caching**: The service worker explicitly excludes authenticated API calls (`/api/auth/*`) and private user mutation endpoints from caching to ensure cookie sessions are handled correctly.
-- **Local Reminders Testing**: Local QStash testing requires exposing the local instance via a tunneling software (e.g. `ngrok` or `localtunnel`) so Upstash servers can reach the `/api/reminders/send` API callback.
-- **At-Least-Once Semantics**: Extremely rare process crashes between the delivery of the push notification and database status write can result in a duplicated visible notification.
-- **Notification Permissions**: Background reminders will not deliver if the device blocks notification delivery or has Do Not Disturb / Focus modes active.
-
----
-
-## Security
-
-- **Secrets Management**: Secret tokens (`QSTASH_TOKEN`, `VAPID_PRIVATE_KEY`, etc.) are kept server-side and must never be exposed via `NEXT_PUBLIC_` prefixes or client-side bundles.
-- **Authentication**: Reminders, medications, and schedules are protected by server-side query filters validating the session owner. Users can never edit, view, or receive reminders for medications belonging to other users.
-- **Callback Verification**: The `/api/reminders/send` endpoint rejects requests missing a valid QStash HMAC signature, protecting it against unauthorized public POST requests.
+MediTrack is a finished medication tracking application featuring complete medication management, authentication, scheduled reminders, background browser push notifications, PWA support, and theme synchronization.
