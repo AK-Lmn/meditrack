@@ -32,5 +32,27 @@ self.addEventListener('push', (event) => {
     icon: '/icon-192.svg',
     badge: '/icon-192.svg',
     tag: data.tag || 'meditrack-reminder',
+    data: { url: data.url || '/medicines' },
   }))
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const targetUrl = event.notification.data?.url || '/medicines'
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      // If a MediTrack window is already open, focus it and navigate
+      for (const client of windowClients) {
+        if (client.url.includes(self.location.origin) && 'focus' in client) {
+          client.focus()
+          client.navigate(targetUrl)
+          return
+        }
+      }
+      // Otherwise open a new window
+      if (clients.openWindow) {
+        return clients.openWindow(targetUrl)
+      }
+    })
+  )
 })

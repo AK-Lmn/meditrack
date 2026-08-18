@@ -4,7 +4,8 @@ import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { medicationLogs, medicationSchedules, medications, notifications, notificationSettings, pushSubscriptions } from '@/lib/db/schema'
 import { occurrenceKey } from '@/lib/medication-rules'
-import { and, desc, eq, lte } from 'drizzle-orm'
+import { isVapidConfigured } from '@/lib/web-push'
+import { and, count, desc, eq } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 
@@ -19,10 +20,22 @@ export async function getNotificationState() {
   await generateDueNotificationsForUser(userId)
   const [settings] = await db.select().from(notificationSettings).where(eq(notificationSettings.userId, userId)).limit(1)
   const rows = await db.select().from(notifications).where(and(eq(notifications.userId, userId), eq(notifications.dismissed, false))).orderBy(desc(notifications.createdAt)).limit(20)
+  
+  // Count active push subscriptions for the user
+  const [subCountRow] = await db
+    .select({ count: count() })
+    .from(pushSubscriptions)
+    .where(eq(pushSubscriptions.userId, userId))
+
   return {
     settings: settings ?? { userId, medicationReminders: true, browserNotifications: false, reminderMinutesBefore: 0, timezone: 'UTC', updatedAt: new Date() },
     notifications: rows,
+    /** Safe to send to client — this is the VAPID public key only */
     publicVapidKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? '',
+    /** Whether VAPID is fully configured on the server (both keys present) */
+    vapidConfigured: isVapidConfigured(),
+    /** Whether the user has at least one active push subscription */
+    hasActiveSubscription: Number(subCountRow?.count ?? 0) > 0,
   }
 }
 
@@ -96,4 +109,3 @@ export async function generateDueNotificationsForUser(userId: string, now = new 
     }).onConflictDoNothing({ target: [notifications.userId, notifications.occurrenceKey, notifications.type] })
   }
 }
-

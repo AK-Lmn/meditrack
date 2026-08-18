@@ -12,6 +12,32 @@ export const notifications = pgTable('notifications', { id: serial('id').primary
 export const pushSubscriptions = pgTable('push_subscriptions', { id: serial('id').primaryKey(), userId: text('user_id').notNull(), endpoint: text('endpoint').notNull(), p256dh: text('p256dh').notNull(), auth: text('auth').notNull(), createdAt: timestamp('created_at').notNull().defaultNow(), updatedAt: timestamp('updated_at').notNull().defaultNow() }, (table) => ({ endpointUnique: unique('push_subscriptions_endpoint_unique').on(table.endpoint), userIdx: index('push_subscriptions_user_idx').on(table.userId) }))
 export const notificationSettings = pgTable('notification_settings', { userId: text('user_id').primaryKey(), medicationReminders: boolean('medication_reminders').notNull().default(true), browserNotifications: boolean('browser_notifications').notNull().default(false), reminderMinutesBefore: integer('reminder_minutes_before').notNull().default(0), timezone: text('timezone').notNull().default('UTC'), updatedAt: timestamp('updated_at').notNull().defaultNow() })
 
-export const schema = { user, session, account, verification, medications, medicationLogs, medicationSchedules, notifications, pushSubscriptions, notificationSettings }
+/**
+ * Tracks scheduled QStash messages for each medication occurrence with state safety.
+ * The unique index on (userId, occurrenceKey) is the DB-level idempotency guarantee.
+ */
+export const medicationReminders = pgTable('medication_reminders', {
+  id: serial('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  medicationId: integer('medication_id').notNull(),
+  scheduleId: integer('schedule_id').notNull(),
+  /** Stable key: "<medicationId>:<ISO8601-date>T<HH:MM>" e.g. "7:2026-08-20T08:00" */
+  occurrenceKey: text('occurrence_key').notNull(),
+  /** UTC timestamp of when the dose is scheduled */
+  scheduledFor: timestamp('scheduled_for').notNull(),
+  /** QStash message ID stored for potential cancellation */
+  qstashMessageId: text('qstash_message_id'),
+  /** State machine status: 'pending' | 'processing' | 'delivered' | 'failed' | 'cancelled' */
+  status: text('status').notNull().default('pending'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => ({
+  occurrenceUnique: unique('medication_reminders_occurrence_unique').on(table.userId, table.occurrenceKey),
+  scheduleIdx: index('medication_reminders_schedule_idx').on(table.scheduleId),
+  userIdx: index('medication_reminders_user_idx').on(table.userId),
+}))
+
+export const schema = { user, session, account, verification, medications, medicationLogs, medicationSchedules, notifications, pushSubscriptions, notificationSettings, medicationReminders }
 export type Medication = typeof medications.$inferSelect
 export type NewMedication = typeof medications.$inferInsert
+export type MedicationReminder = typeof medicationReminders.$inferSelect

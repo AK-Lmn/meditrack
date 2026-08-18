@@ -46,10 +46,15 @@ export default function MediTrackDashboard({ medications, doses, user }: { medic
   const todayTaken = takenIds.size
   const unread = notifications.filter((item) => !item.read).length
 
+  const [vapidConfigured, setVapidConfigured] = useState(false)
+  const [hasActiveSubscription, setHasActiveSubscription] = useState(false)
+
   useEffect(() => {
     getNotificationState().then((state) => {
       setNotifications(state.notifications)
       setSettings({ medicationReminders: state.settings.medicationReminders, browserNotifications: state.settings.browserNotifications, reminderMinutesBefore: state.settings.reminderMinutesBefore, timezone: state.settings.timezone })
+      setVapidConfigured(state.vapidConfigured)
+      setHasActiveSubscription(state.hasActiveSubscription)
     }).catch(() => undefined)
   }, [])
 
@@ -100,8 +105,8 @@ export default function MediTrackDashboard({ medications, doses, user }: { medic
       return
     }
     const state = await getNotificationState()
-    if (!state.publicVapidKey) {
-      setPermissionMessage('Browser push needs VAPID keys configured before deployment can send reminders.')
+    if (!state.vapidConfigured || !state.publicVapidKey) {
+      setPermissionMessage('Browser push needs VAPID keys fully configured on the server before sending reminders.')
       return
     }
     const registration = await navigator.serviceWorker.ready
@@ -109,6 +114,7 @@ export default function MediTrackDashboard({ medications, doses, user }: { medic
     await savePushSubscription(subscription.toJSON() as { endpoint: string; keys?: { p256dh?: string; auth?: string } })
     await updateNotificationSettings({ ...settings, browserNotifications: true })
     setSettings((current) => ({ ...current, browserNotifications: true }))
+    setHasActiveSubscription(true)
     setPermissionMessage('Browser notifications are enabled for this device.')
   }
 
@@ -130,7 +136,7 @@ export default function MediTrackDashboard({ medications, doses, user }: { medic
         {notificationOpen && <NotificationPanel notifications={notifications} onRead={(id) => startTransition(async () => { await markNotificationRead(id); setNotifications((items) => items.map((item) => item.id === id ? { ...item, read: true } : item)) })} onDismiss={(id) => startTransition(async () => { await dismissNotification(id); setNotifications((items) => items.filter((item) => item.id !== id)) })} onTake={(id, medicationId) => medicationId && startTransition(async () => { await takeDose(medicationId); await markNotificationRead(id); setNotifications((items) => items.map((item) => item.id === id ? { ...item, read: true } : item)); router.refresh() })} />}
       </header>
       <div className="mx-auto max-w-[1380px] p-4 pb-24 sm:p-8 lg:pb-8">
-        {activeLabel === 'Settings' ? <SettingsView settings={settings} permissionMessage={permissionMessage} onToggleReminders={(enabled) => startTransition(async () => { await updateNotificationSettings({ ...settings, medicationReminders: enabled }); setSettings((current) => ({ ...current, medicationReminders: enabled })) })} onEnableBrowser={enableBrowserNotifications} /> : <DashboardView activeLabel={activeLabel} medications={medications} filtered={filtered} takenIds={takenIds} todayTaken={todayTaken} isPending={isPending} message={message} query={query} setQuery={setQuery} setShowAdd={setShowAdd} toggleDose={toggleDose} archive={(medicine) => startTransition(async () => { await archiveMedication(medicine.id); setMessage(`${medicine.name} archived.`); router.refresh() })} />}
+        {activeLabel === 'Settings' ? <SettingsView settings={settings} permissionMessage={permissionMessage} vapidConfigured={vapidConfigured} hasActiveSubscription={hasActiveSubscription} onToggleReminders={(enabled) => startTransition(async () => { await updateNotificationSettings({ ...settings, medicationReminders: enabled }); setSettings((current) => ({ ...current, medicationReminders: enabled })) })} onToggleTimezone={(tz) => startTransition(async () => { await updateNotificationSettings({ ...settings, timezone: tz }); setSettings((current) => ({ ...current, timezone: tz })) })} onEnableBrowser={enableBrowserNotifications} /> : <DashboardView activeLabel={activeLabel} medications={medications} filtered={filtered} takenIds={takenIds} todayTaken={todayTaken} isPending={isPending} message={message} query={query} setQuery={setQuery} setShowAdd={setShowAdd} toggleDose={toggleDose} archive={(medicine) => startTransition(async () => { await archiveMedication(medicine.id); setMessage(`${medicine.name} archived.`); router.refresh() })} />}
       </div>
     </main>
     <BottomNav activeLabel={activeLabel} />
@@ -327,8 +333,72 @@ function MedicinesView({ medications, filtered, takenIds, isPending, message, qu
   )
 }
 
-function SettingsView({ settings, permissionMessage, onToggleReminders, onEnableBrowser }: { settings: NotificationSettings; permissionMessage: string; onToggleReminders: (enabled: boolean) => void; onEnableBrowser: () => void }) {
-  return <section className="max-w-3xl rounded-2xl border border-[#e5eaf1] bg-white p-5 sm:p-6 dark:border-[#254258] dark:bg-[#132b3b]"><h2 className="text-base font-bold">Medication reminders</h2><p className="mt-1 text-xs text-[#8a96a8] dark:text-[#a8c4d3]">MediTrack reminds you when a scheduled medication is due.</p><div className="mt-6 space-y-4"><label className="flex min-h-11 items-center justify-between gap-4 rounded-xl border border-[#edf0f4] p-4 dark:border-[#315069]"><span><span className="block text-sm font-bold">Enable reminders</span><span className="text-xs text-[#8491a3] dark:text-[#a8c4d3]">Creates in-app reminders from your medication schedule.</span></span><input type="checkbox" checked={settings.medicationReminders} onChange={(e) => onToggleReminders(e.target.checked)} className="h-5 w-5 accent-[#1e7b8c]" /></label><div className="rounded-xl border border-[#edf0f4] p-4 dark:border-[#315069]"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><div className="text-sm font-bold">Browser notifications</div><p className="text-xs text-[#8491a3] dark:text-[#a8c4d3]">Allow notifications so MediTrack can remind you when a scheduled medication is due.</p></div><button onClick={onEnableBrowser} className="min-h-11 rounded-lg bg-[#1e7b8c] px-4 text-xs font-bold text-white">Enable on this device</button></div>{permissionMessage && <p className="mt-3 text-xs font-semibold text-[#c58b35]">{permissionMessage}</p>}</div><div className="flex items-center justify-between rounded-xl border border-[#edf0f4] p-4 dark:border-[#315069]"><span className="text-sm font-bold">Color theme</span><ThemeSelect /></div></div></section>
+function SettingsView({ settings, permissionMessage, vapidConfigured, hasActiveSubscription, onToggleReminders, onToggleTimezone, onEnableBrowser }: { settings: NotificationSettings; permissionMessage: string; vapidConfigured: boolean; hasActiveSubscription: boolean; onToggleReminders: (enabled: boolean) => void; onToggleTimezone: (tz: string) => void; onEnableBrowser: () => void }) {
+  return (
+    <section className="max-w-3xl rounded-2xl border border-[#e5eaf1] bg-white p-5 sm:p-6 dark:border-[#254258] dark:bg-[#132b3b]">
+      <h2 className="text-base font-bold">Medication reminders</h2>
+      <p className="mt-1 text-xs text-[#8a96a8] dark:text-[#a8c4d3]">MediTrack reminds you when a scheduled medication is due.</p>
+      
+      <div className="mt-6 space-y-4">
+        {/* Enable Reminders Switch */}
+        <label className="flex min-h-11 items-center justify-between gap-4 rounded-xl border border-[#edf0f4] p-4 dark:border-[#315069]">
+          <span>
+            <span className="block text-sm font-bold">Enable reminders</span>
+            <span className="text-xs text-[#8491a3] dark:text-[#a8c4d3]">Creates in-app reminders and schedules push events.</span>
+          </span>
+          <input type="checkbox" checked={settings.medicationReminders} onChange={(e) => onToggleReminders(e.target.checked)} className="h-5 w-5 accent-[#1e7b8c]" />
+        </label>
+
+        {/* Push Notifications Configuration */}
+        <div className="rounded-xl border border-[#edf0f4] p-4 dark:border-[#315069]">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-sm font-bold">Browser push notifications</div>
+              <p className="text-xs text-[#8491a3] dark:text-[#a8c4d3]">
+                Allow notifications to receive background medication reminders even when the website is closed.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${vapidConfigured ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'}`}>
+                  {vapidConfigured ? 'Server configured' : 'VAPID missing'}
+                </span>
+                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${hasActiveSubscription ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300' : 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300'}`}>
+                  {hasActiveSubscription ? 'Device subscribed' : 'No active subscription'}
+                </span>
+              </div>
+            </div>
+            <button onClick={onEnableBrowser} disabled={!vapidConfigured} className="min-h-11 rounded-lg bg-[#1e7b8c] px-4 text-xs font-bold text-white hover:bg-[#176b7a] disabled:opacity-50">
+              Enable on this device
+            </button>
+          </div>
+          {permissionMessage && <p className="mt-3 text-xs font-semibold text-[#c58b35]">{permissionMessage}</p>}
+        </div>
+
+        {/* Timezone Setting */}
+        <div className="flex items-center justify-between rounded-xl border border-[#edf0f4] p-4 dark:border-[#315069]">
+          <div>
+            <span className="block text-sm font-bold">Timezone</span>
+            <span className="text-xs text-[#8491a3] dark:text-[#a8c4d3]">Reminders schedule relative to this timezone.</span>
+          </div>
+          <select value={settings.timezone} onChange={(e) => onToggleTimezone(e.target.value)} className="h-10 rounded-lg border border-[#dfe6ec] bg-white px-2 text-xs text-[#18243a] outline-none dark:border-[#315069] dark:bg-[#173247] dark:text-[#f5eedd]">
+            <option value="UTC">UTC</option>
+            <option value="Asia/Manila">Asia/Manila (PHT)</option>
+            <option value="America/New_York">America/New_York (EST/EDT)</option>
+            <option value="America/Chicago">America/Chicago (CST/CDT)</option>
+            <option value="America/Denver">America/Denver (MST/MDT)</option>
+            <option value="America/Los_Angeles">America/Los_Angeles (PST/PDT)</option>
+            <option value="Europe/London">Europe/London (GMT/BST)</option>
+            <option value="Europe/Paris">Europe/Paris (CET/CEST)</option>
+          </select>
+        </div>
+
+        {/* Theme Settings */}
+        <div className="flex items-center justify-between rounded-xl border border-[#edf0f4] p-4 dark:border-[#315069]">
+          <span className="text-sm font-bold">Color theme</span>
+          <ThemeSelect />
+        </div>
+      </div>
+    </section>
+  )
 }
 
 function NotificationPanel({ notifications, onRead, onDismiss, onTake }: { notifications: NotificationRow[]; onRead: (id: number) => void; onDismiss: (id: number) => void; onTake: (id: number, medicationId: number | null) => void }) {
