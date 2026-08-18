@@ -170,3 +170,19 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+@keyframes loading-bar {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(100%);
+  }
+  100% {
+    transform: translateX(200%);
+  }
+}
+
+.animate-loading-bar {
+  animation: loading-bar 1.2s infinite ease-in-out;
+}

@@ -47,6 +47,23 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function() {
+              try {
+                const saved = localStorage.getItem('meditrack-theme') || 'system';
+                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                const isDark = saved === 'dark' || (saved === 'system' && prefersDark);
+                document.documentElement.classList.toggle('dark', isDark);
+                if (saved !== 'system') {
+                  document.documentElement.classList.toggle('light', saved === 'light');
+                }
+              } catch (e) {}
+            })()`,
+          }}
+        />
+      </head>
       <body className="antialiased">
         <ThemeProvider>{children}</ThemeProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
