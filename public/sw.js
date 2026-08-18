@@ -1,5 +1,5 @@
 const CACHE_NAME = 'meditrack-static-v1'
-const STATIC_ASSETS = ['/manifest.webmanifest', '/icon.svg', '/icon-192.svg', '/icon-512.svg']
+const STATIC_ASSETS = ['/manifest.webmanifest', '/icon-192.png', '/icon-512.png', '/apple-icon.png']
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS)).catch(() => undefined))
