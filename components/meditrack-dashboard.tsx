@@ -159,12 +159,12 @@ function SidebarContent({ medications, activeLabel, user, initials, onNavigate }
   return <><div className="flex h-[100px] items-center px-5 border-b border-[#eef1f5] dark:border-[#254258]">
     <div className="h-[64px] w-full">
       <img
-        src="/branding/meditrack-logo-white.png"
+        src="/branding/meditrack-logo-reversed.png"
         alt="MediTrack"
         className="block dark:hidden h-full w-full object-contain object-left"
       />
       <img
-        src="/branding/meditrack-logo-reversed.png"
+        src="/branding/meditrack-logo-white.png"
         alt="MediTrack"
         className="hidden dark:block h-full w-full object-contain object-left"
       />
