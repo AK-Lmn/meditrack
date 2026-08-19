@@ -4,7 +4,7 @@ import { ThemeProvider } from '@/components/theme-provider'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'MediTrack — Personal health, organized',
+  title: 'MediTrack',
   description: 'A clear, private medication tracker for staying on top of your daily care.',
   generator: 'v0.app',
   manifest: '/manifest.webmanifest',
