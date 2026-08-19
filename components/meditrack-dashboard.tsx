@@ -156,17 +156,17 @@ function Sidebar({ medications, activeLabel, user, initials }: { medications: nu
 }
 
 function SidebarContent({ medications, activeLabel, user, initials, onNavigate }: { medications: number; activeLabel: string; user: { name: string; email: string }; initials: string; onNavigate?: () => void }) {
-  return <><div className="flex h-[120px] items-center px-5 border-b border-[#eef1f5] dark:border-[#254258]">
-    <div className="relative h-[80px] w-full">
+  return <><div className="flex h-[100px] items-center px-5 border-b border-[#eef1f5] dark:border-[#254258]">
+    <div className="h-[64px] w-full">
       <img
         src="/branding/meditrack-logo-white.png"
         alt="MediTrack"
-        className="block dark:hidden h-full w-auto object-contain object-left"
+        className="block dark:hidden h-full w-full object-contain object-left"
       />
       <img
         src="/branding/meditrack-logo-reversed.png"
         alt="MediTrack"
-        className="hidden dark:block h-full w-auto object-contain object-left"
+        className="hidden dark:block h-full w-full object-contain object-left"
       />
     </div>
   </div><div className="flex flex-1 flex-col px-4 py-7"><div className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#9aa6b7] dark:text-[#84B3CE]">Workspace</div><nav className="space-y-1">{nav.map(([label, href, Icon]) => <Link key={href} href={href} onClick={onNavigate} className={`flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#84B3CE] ${activeLabel === label ? 'bg-[#eaf6f6] text-[#146b7a] dark:bg-[#173247] dark:text-[#84B3CE]' : 'text-[#718096] hover:bg-[#f5f7fa] dark:text-[#b9d1df] dark:hover:bg-[#173247]'}`}><Icon size={18} strokeWidth={1.9} /><span>{label}</span>{label === 'Medicines' && <span className="ml-auto rounded-full bg-[#edf1f5] px-2 py-0.5 text-[10px] text-[#728097] dark:bg-[#0d2230] dark:text-[#b9d1df]">{medications}</span>}</Link>)}</nav><div className="mt-auto rounded-xl bg-[#f3f8f8] p-4 dark:bg-[#173247]"><div className="flex items-center gap-2 text-[#1f7988] dark:text-[#84B3CE]"><ShieldCheck size={17} /><span className="text-xs font-bold">Your data is private</span></div><p className="mt-2 text-[11px] leading-5 text-[#77909a] dark:text-[#b9d1df]">Private medication data is never cached by the service worker.</p></div></div><div className="flex items-center gap-3 border-t border-[#eef1f5] px-5 py-5 dark:border-[#254258]"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#dbe9ee] text-sm font-bold text-[#256b79] dark:bg-[#173247] dark:text-[#f5eedd]">{initials}</div><div className="min-w-0 flex-1"><div className="truncate text-xs font-bold">{user.name}</div><div className="truncate text-[11px] text-[#8b98aa] dark:text-[#a8c4d3]">{user.email}</div></div><button onClick={() => authClient.signOut().then(() => location.assign('/sign-in'))} className="rounded-lg p-2 text-[#9aa5b4] hover:bg-[#fff2f2] hover:text-[#b45e68]" aria-label="Sign out"><LogOut size={17} /></button></div></>
