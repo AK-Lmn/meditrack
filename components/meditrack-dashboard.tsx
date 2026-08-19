@@ -156,8 +156,8 @@ function Sidebar({ medications, activeLabel, user, initials }: { medications: nu
 }
 
 function SidebarContent({ medications, activeLabel, user, initials, onNavigate }: { medications: number; activeLabel: string; user: { name: string; email: string }; initials: string; onNavigate?: () => void }) {
-  return <><div className="flex h-[82px] items-center px-7 border-b border-[#eef1f5] dark:border-[#254258]">
-    <div className="relative h-11 w-[180px]">
+  return <><div className="flex h-[96px] items-center px-7 border-b border-[#eef1f5] dark:border-[#254258]">
+    <div className="relative h-14 w-[210px]">
       <img
         src="/branding/meditrack-logo-white.png"
         alt="MediTrack"
