@@ -6,7 +6,6 @@ import './globals.css'
 export const metadata: Metadata = {
   title: 'MediTrack',
   description: 'A clear, private medication tracker for staying on top of your daily care.',
-  generator: 'v0.app',
   manifest: '/manifest.webmanifest',
   appleWebApp: {
     capable: true,

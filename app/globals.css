@@ -162,6 +162,14 @@
   }
 }
 
+@layer utilities {
+  :where(a, button, input, select, textarea, summary):focus-visible,
+  .app-focus:focus-visible {
+    outline: 3px solid #84b3ce;
+    outline-offset: 2px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

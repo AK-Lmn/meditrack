@@ -29,8 +29,8 @@ self.addEventListener('push', (event) => {
   const data = event.data?.json() || {}
   event.waitUntil(self.registration.showNotification(data.title || 'MediTrack reminder', {
     body: data.body || 'A scheduled medication is due.',
-    icon: '/icon-192.svg',
-    badge: '/icon-192.svg',
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
     tag: data.tag || 'meditrack-reminder',
     data: { url: data.url || '/medicines' },
   }))
