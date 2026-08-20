@@ -9,6 +9,7 @@ import { takeDose, undoDose } from '@/app/actions/doses'
 import { dismissNotification, getNotificationState, markNotificationRead, savePushSubscription, updateNotificationSettings } from '@/app/actions/notifications'
 import { ThemeSelect } from '@/components/theme-provider'
 import { authClient } from '@/lib/auth-client'
+import { formatDateForTimeZone, getGreetingForTimeZone, type TimeOfDayGreeting } from '@/lib/timezone-display'
 import { Activity, Bell, CalendarDays, Check, CheckCircle2, ChevronDown, Clock3, Download, FileText, LayoutDashboard, LogOut, Menu, MoreHorizontal, Pill, Plus, Search, Settings, ShieldCheck, TrendingUp, Undo2, X } from 'lucide-react'
 
 type Medication = { id: number; name: string; dosage: string; frequency: string; instructions: string | null; color: string; active: boolean }
@@ -26,7 +27,7 @@ const nav = [
   ['Settings', '/settings', Settings],
 ] as const
 
-export default function MediTrackDashboard({ medications, doses, user }: { medications: Medication[]; doses: Dose[]; user: { name: string; email: string } }) {
+export default function MediTrackDashboard({ medications, doses, user, initialTimezone, initialGreeting, initialLocalDate }: { medications: Medication[]; doses: Dose[]; user: { name: string; email: string }; initialTimezone: string | null; initialGreeting: TimeOfDayGreeting | null; initialLocalDate: string | null }) {
   const pathname = usePathname()
   const router = useRouter()
   const activeLabel = nav.find((item) => item[1] === pathname)?.[0] ?? 'Dashboard'
@@ -38,7 +39,9 @@ export default function MediTrackDashboard({ medications, doses, user }: { medic
   const [toast, setToast] = useState<ToastMessage | null>(null)
   const [notificationOpen, setNotificationOpen] = useState(false)
   const [notifications, setNotifications] = useState<NotificationRow[]>([])
-  const [settings, setSettings] = useState<NotificationSettings>({ medicationReminders: true, browserNotifications: false, reminderMinutesBefore: 0, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' })
+  const [settings, setSettings] = useState<NotificationSettings>({ medicationReminders: true, browserNotifications: false, reminderMinutesBefore: 0, timezone: initialTimezone ?? '' })
+  const [greeting, setGreeting] = useState<TimeOfDayGreeting | null>(initialGreeting)
+  const [localDate, setLocalDate] = useState<string | null>(initialLocalDate)
   const [permissionMessage, setPermissionMessage] = useState('')
   const [offline, setOffline] = useState(false)
   const [installEvent, setInstallEvent] = useState<Event | null>(null)
@@ -53,6 +56,19 @@ export default function MediTrackDashboard({ medications, doses, user }: { medic
   const [hasActiveSubscription, setHasActiveSubscription] = useState(false)
 
   useEffect(() => {
+    const updateLocalTime = () => {
+      const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+      const now = new Date()
+      const configuredGreeting = getGreetingForTimeZone(settings.timezone, now)
+      setGreeting(configuredGreeting ?? getGreetingForTimeZone(browserTimezone, now))
+      setLocalDate(formatDateForTimeZone(settings.timezone, now) ?? formatDateForTimeZone(browserTimezone, now))
+    }
+    updateLocalTime()
+    const interval = window.setInterval(updateLocalTime, 60_000)
+    return () => window.clearInterval(interval)
+  }, [settings.timezone])
+
+  useEffect(() => {
     if (!toast) return
     const timeout = window.setTimeout(() => setToast(null), 6000)
     return () => window.clearTimeout(timeout)
@@ -61,11 +77,14 @@ export default function MediTrackDashboard({ medications, doses, user }: { medic
   useEffect(() => {
     getNotificationState().then((state) => {
       setNotifications(state.notifications)
-      setSettings({ medicationReminders: state.settings.medicationReminders, browserNotifications: state.settings.browserNotifications, reminderMinutesBefore: state.settings.reminderMinutesBefore, timezone: state.settings.timezone })
+      const timezone = initialTimezone === null && state.settings.timezone === 'UTC'
+        ? Intl.DateTimeFormat().resolvedOptions().timeZone
+        : state.settings.timezone
+      setSettings({ medicationReminders: state.settings.medicationReminders, browserNotifications: state.settings.browserNotifications, reminderMinutesBefore: state.settings.reminderMinutesBefore, timezone })
       setVapidConfigured(state.vapidConfigured)
       setHasActiveSubscription(state.hasActiveSubscription)
     }).catch(() => undefined)
-  }, [])
+  }, [initialTimezone])
 
   useEffect(() => {
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => undefined)
@@ -153,7 +172,7 @@ export default function MediTrackDashboard({ medications, doses, user }: { medic
       <header className="sticky top-0 z-30 flex min-h-[76px] items-center justify-between border-b border-[#e5eaf1] bg-white/95 px-4 backdrop-blur sm:px-8 dark:border-[#254258] dark:bg-[#132b3b]/95">
         <div className="flex min-w-0 items-center gap-3">
           <button className="app-focus flex h-11 w-11 items-center justify-center rounded-lg lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={21} /></button>
-          <div className="min-w-0"><div className="truncate text-lg font-bold tracking-[-0.02em] sm:text-xl">{activeLabel === 'Dashboard' ? `Good morning, ${user.name.split(' ')[0]}` : activeLabel} <span className="text-[#1e7b8c] dark:text-[#84B3CE]">.</span></div><div className="mt-1 hidden text-xs text-[#8592a5] sm:block dark:text-[#a8c4d3]">{new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).format(new Date())} <span className="mx-1.5 text-[#c3cad4]">·</span> Your care plan at a glance.</div></div>
+          <div className="min-w-0"><div className="truncate text-lg font-bold tracking-[-0.02em] sm:text-xl">{activeLabel === 'Dashboard' ? `${greeting ?? 'Welcome'}, ${user.name.split(' ')[0]}` : activeLabel} <span className="text-[#1e7b8c] dark:text-[#84B3CE]">.</span></div><div className="mt-1 hidden text-xs text-[#8592a5] sm:block dark:text-[#a8c4d3]">{localDate ?? 'Your local care plan'} <span className="mx-1.5 text-[#c3cad4]">·</span> Your care plan at a glance.</div></div>
         </div>
         <div className="flex items-center gap-2"><InstallButton installEvent={installEvent} onDone={() => setInstallEvent(null)} /><div className="hidden sm:block"><ThemeSelect compact /></div><button onClick={() => setNotificationOpen((value) => !value)} className="app-focus relative flex h-11 w-11 items-center justify-center rounded-lg text-[#7d8a9d] hover:bg-[#f3f6f8] dark:text-[#bdd5df] dark:hover:bg-[#173247]" aria-expanded={notificationOpen} aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'}><Bell size={19} />{unread > 0 && <span aria-hidden="true" className="absolute right-2 top-2 min-w-4 rounded-full bg-[#bd6570] px-1 text-[10px] font-bold text-white">{unread}</span>}</button><div className="hidden h-7 w-px bg-[#e8ecf1] sm:block dark:bg-[#315069]" /><div className="hidden h-8 w-8 items-center justify-center rounded-full bg-[#dbe9ee] text-xs font-bold text-[#256b79] sm:flex dark:bg-[#173247] dark:text-[#f5eedd]">{initials}</div><ChevronDown size={14} className="hidden text-[#8c98a9] sm:block" /></div>
         {notificationOpen && <NotificationPanel notifications={notifications} onRead={(id) => startTransition(async () => { await markNotificationRead(id); setNotifications((items) => items.map((item) => item.id === id ? { ...item, read: true } : item)) })} onDismiss={(id) => startTransition(async () => { await dismissNotification(id); setNotifications((items) => items.filter((item) => item.id !== id)) })} onTake={(id, medicationId) => medicationId && startTransition(async () => { await takeDose(medicationId); await markNotificationRead(id); setNotifications((items) => items.map((item) => item.id === id ? { ...item, read: true } : item)); router.refresh() })} />}
