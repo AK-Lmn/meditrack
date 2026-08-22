@@ -17,6 +17,7 @@ type Dose = { medicationId: number; status: string; scheduledAt: Date | string }
 type NotificationRow = { id: number; medicationId: number | null; title: string; message: string; read: boolean; createdAt: Date | string }
 type NotificationSettings = { medicationReminders: boolean; browserNotifications: boolean; timezone: string; reminderMinutesBefore: number }
 type ToastMessage = { id: number; kind: 'success' | 'error'; text: string; undoMedicationId?: number }
+type NotificationStatus = 'loading' | 'ready' | 'error'
 
 const nav = [
   ['Dashboard', '/', LayoutDashboard],
@@ -39,6 +40,7 @@ export default function MediTrackDashboard({ medications, doses, user, initialTi
   const [toast, setToast] = useState<ToastMessage | null>(null)
   const [notificationOpen, setNotificationOpen] = useState(false)
   const [notifications, setNotifications] = useState<NotificationRow[]>([])
+  const [notificationStatus, setNotificationStatus] = useState<NotificationStatus>('loading')
   const [settings, setSettings] = useState<NotificationSettings>({ medicationReminders: true, browserNotifications: false, reminderMinutesBefore: 0, timezone: initialTimezone ?? '' })
   const [greeting, setGreeting] = useState<TimeOfDayGreeting | null>(initialGreeting)
   const [localDate, setLocalDate] = useState<string | null>(initialLocalDate)
@@ -77,13 +79,14 @@ export default function MediTrackDashboard({ medications, doses, user, initialTi
   useEffect(() => {
     getNotificationState().then((state) => {
       setNotifications(state.notifications)
+      setNotificationStatus('ready')
       const timezone = initialTimezone === null && state.settings.timezone === 'UTC'
         ? Intl.DateTimeFormat().resolvedOptions().timeZone
         : state.settings.timezone
       setSettings({ medicationReminders: state.settings.medicationReminders, browserNotifications: state.settings.browserNotifications, reminderMinutesBefore: state.settings.reminderMinutesBefore, timezone })
       setVapidConfigured(state.vapidConfigured)
       setHasActiveSubscription(state.hasActiveSubscription)
-    }).catch(() => undefined)
+    }).catch(() => setNotificationStatus('error'))
   }, [initialTimezone])
 
   useEffect(() => {
@@ -174,8 +177,7 @@ export default function MediTrackDashboard({ medications, doses, user, initialTi
           <button className="app-focus flex h-11 w-11 items-center justify-center rounded-lg lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={21} /></button>
           <div className="min-w-0"><div className="truncate text-lg font-bold tracking-[-0.02em] sm:text-xl">{activeLabel === 'Dashboard' ? `${greeting ?? 'Welcome'}, ${user.name.split(' ')[0]}` : activeLabel} <span className="text-[#1e7b8c] dark:text-[#84B3CE]">.</span></div><div className="mt-1 hidden text-xs text-[#8592a5] sm:block dark:text-[#a8c4d3]">{localDate ?? 'Your local care plan'} <span className="mx-1.5 text-[#c3cad4]">·</span> Your care plan at a glance.</div></div>
         </div>
-        <div className="flex items-center gap-2"><InstallButton installEvent={installEvent} onDone={() => setInstallEvent(null)} /><div className="hidden sm:block"><ThemeSelect compact /></div><button onClick={() => setNotificationOpen((value) => !value)} className="app-focus relative flex h-11 w-11 items-center justify-center rounded-lg text-[#7d8a9d] hover:bg-[#f3f6f8] dark:text-[#bdd5df] dark:hover:bg-[#173247]" aria-expanded={notificationOpen} aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'}><Bell size={19} />{unread > 0 && <span aria-hidden="true" className="absolute right-2 top-2 min-w-4 rounded-full bg-[#bd6570] px-1 text-[10px] font-bold text-white">{unread}</span>}</button><div className="hidden h-7 w-px bg-[#e8ecf1] sm:block dark:bg-[#315069]" /><div className="hidden h-8 w-8 items-center justify-center rounded-full bg-[#dbe9ee] text-xs font-bold text-[#256b79] sm:flex dark:bg-[#173247] dark:text-[#f5eedd]">{initials}</div><ChevronDown size={14} className="hidden text-[#8c98a9] sm:block" /></div>
-        {notificationOpen && <NotificationPanel notifications={notifications} onRead={(id) => startTransition(async () => { await markNotificationRead(id); setNotifications((items) => items.map((item) => item.id === id ? { ...item, read: true } : item)) })} onDismiss={(id) => startTransition(async () => { await dismissNotification(id); setNotifications((items) => items.filter((item) => item.id !== id)) })} onTake={(id, medicationId) => medicationId && startTransition(async () => { await takeDose(medicationId); await markNotificationRead(id); setNotifications((items) => items.map((item) => item.id === id ? { ...item, read: true } : item)); router.refresh() })} />}
+        <div className="flex items-center gap-2"><InstallButton installEvent={installEvent} onDone={() => setInstallEvent(null)} /><div className="hidden sm:block"><ThemeSelect compact /></div><Dialog.Root open={notificationOpen} onOpenChange={setNotificationOpen}><Dialog.Trigger className="app-focus relative flex h-11 w-11 items-center justify-center rounded-lg text-[#7d8a9d] hover:bg-[#f3f6f8] dark:text-[#bdd5df] dark:hover:bg-[#173247]" aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'}><Bell size={19} aria-hidden="true" />{unread > 0 && <span aria-hidden="true" className="absolute right-2 top-2 min-w-4 rounded-full bg-[#bd6570] px-1 text-[10px] font-bold text-white">{unread}</span>}</Dialog.Trigger><NotificationPanel status={notificationStatus} notifications={notifications} onRead={(id) => startTransition(async () => { await markNotificationRead(id); setNotifications((items) => items.map((item) => item.id === id ? { ...item, read: true } : item)) })} onDismiss={(id) => startTransition(async () => { await dismissNotification(id); setNotifications((items) => items.filter((item) => item.id !== id)) })} onTake={(id, medicationId) => medicationId && startTransition(async () => { await takeDose(medicationId); await markNotificationRead(id); setNotifications((items) => items.map((item) => item.id === id ? { ...item, read: true } : item)); router.refresh() })} /></Dialog.Root><div className="hidden h-7 w-px bg-[#e8ecf1] sm:block dark:bg-[#315069]" /><div className="hidden h-8 w-8 items-center justify-center rounded-full bg-[#dbe9ee] text-xs font-bold text-[#256b79] sm:flex dark:bg-[#173247] dark:text-[#f5eedd]">{initials}</div><ChevronDown size={14} className="hidden text-[#8c98a9] sm:block" /></div>
       </header>
       <div className="mx-auto max-w-[1380px] p-4 pb-24 sm:p-8 lg:pb-8">
         {activeLabel === 'Settings' ? <SettingsView settings={settings} permissionMessage={permissionMessage} vapidConfigured={vapidConfigured} hasActiveSubscription={hasActiveSubscription} onToggleReminders={(enabled) => startTransition(async () => { await updateNotificationSettings({ ...settings, medicationReminders: enabled }); setSettings((current) => ({ ...current, medicationReminders: enabled })) })} onToggleTimezone={(tz) => startTransition(async () => { await updateNotificationSettings({ ...settings, timezone: tz }); setSettings((current) => ({ ...current, timezone: tz })) })} onEnableBrowser={enableBrowserNotifications} /> : <DashboardView activeLabel={activeLabel} medications={medications} filtered={filtered} takenIds={takenIds} todayTaken={todayTaken} pendingDoseId={pendingDoseId} query={query} setQuery={setQuery} setShowAdd={setShowAdd} toggleDose={toggleDose} archive={(medicine) => startTransition(async () => { try { await archiveMedication(medicine.id); setToast({ id: Date.now(), kind: 'success', text: `${medicine.name} archived.` }); router.refresh() } catch { setToast({ id: Date.now(), kind: 'error', text: `Unable to archive ${medicine.name}. Please try again.` }) } })} />}
@@ -497,8 +499,23 @@ function SettingsView({ settings, permissionMessage, vapidConfigured, hasActiveS
   )
 }
 
-function NotificationPanel({ notifications, onRead, onDismiss, onTake }: { notifications: NotificationRow[]; onRead: (id: number) => void; onDismiss: (id: number) => void; onTake: (id: number, medicationId: number | null) => void }) {
-  return <section role="region" aria-labelledby="notification-panel-title" className="fixed inset-x-4 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-50 max-h-[min(70vh,520px)] rounded-xl border border-[#e5eaf1] bg-white p-3 shadow-xl sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-4 sm:top-[70px] sm:w-[360px] dark:border-[#254258] dark:bg-[#132b3b]"><h2 id="notification-panel-title" className="px-2 py-1 text-sm font-bold">Notifications</h2><div className="mt-2 max-h-[min(60vh,420px)] space-y-2 overflow-auto overscroll-contain">{notifications.length ? notifications.map((item) => <div key={item.id} className={`rounded-lg border p-3 ${item.read ? 'border-[#edf0f4] dark:border-[#315069]' : 'border-[#84B3CE] bg-[#f3f8f8] dark:bg-[#173247]'}`}><div className="flex items-start gap-2"><div className="text-sm font-bold">{item.title}</div>{!item.read && <span className="sr-only">Unread</span>}</div><p className="mt-1 text-xs text-[#718096] dark:text-[#b9d1df]">{item.message}</p><div className="mt-3 flex flex-wrap gap-2"><button onClick={() => onTake(item.id, item.medicationId)} disabled={!item.medicationId} className="app-focus min-h-10 rounded-lg bg-[#1e7b8c] px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Take now</button><button onClick={() => onRead(item.id)} className="app-focus min-h-10 rounded-lg border border-[#dfe6ec] px-3 py-2 text-xs font-bold dark:border-[#315069]">Mark read</button><button onClick={() => onDismiss(item.id)} className="app-focus ml-auto flex h-10 w-10 items-center justify-center rounded-lg text-[#9aa5b4] hover:bg-[#f3f6f8] dark:hover:bg-[#173247]" aria-label={`Dismiss ${item.title}`}><X size={15} aria-hidden="true" /></button></div></div>) : <p className="px-2 py-8 text-center text-xs text-[#718096] dark:text-[#b9d1df]">No reminders right now.</p>}</div></section>
+function NotificationPanel({ status, notifications, onRead, onDismiss, onTake }: { status: NotificationStatus; notifications: NotificationRow[]; onRead: (id: number) => void; onDismiss: (id: number) => void; onTake: (id: number, medicationId: number | null) => void }) {
+  return <Dialog.Portal>
+    <Dialog.Backdrop className="fixed inset-0 z-40 bg-[#0b1c28]/55 sm:bg-transparent" />
+    <Dialog.Popup className="fixed inset-x-3 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-50 flex max-h-[calc(100dvh-5.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] flex-col overflow-hidden rounded-xl border border-[#e5eaf1] bg-white shadow-xl outline-none sm:inset-x-auto sm:bottom-auto sm:right-4 sm:top-[70px] sm:w-[360px] sm:max-w-[calc(100vw-2rem)] sm:max-h-[min(70vh,520px)] dark:border-[#254258] dark:bg-[#132b3b]">
+      <div className="flex shrink-0 items-center justify-between border-b border-[#edf0f4] px-4 py-3 dark:border-[#254258]">
+        <Dialog.Title className="text-sm font-bold">Notifications</Dialog.Title>
+        <Dialog.Close className="app-focus flex h-10 w-10 items-center justify-center rounded-lg text-[#718096] hover:bg-[#f3f6f8] dark:text-[#b9d1df] dark:hover:bg-[#173247]" aria-label="Close notifications"><X size={17} aria-hidden="true" /></Dialog.Close>
+      </div>
+      <Dialog.Description className="sr-only">Your medication reminders and notification actions.</Dialog.Description>
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overflow-x-hidden overscroll-contain p-3 [scrollbar-gutter:stable]" aria-live="polite" aria-busy={status === 'loading'}>
+        {status === 'loading' ? <p role="status" className="px-2 py-8 text-center text-xs text-[#718096] dark:text-[#b9d1df]">Loading notifications…</p>
+          : status === 'error' ? <p role="alert" className="px-2 py-8 text-center text-xs leading-5 text-[#b45e68] dark:text-[#e2a2aa]">Notifications could not be loaded. Please close this panel and try again.</p>
+          : notifications.length ? notifications.map((item) => <div key={item.id} className={`min-w-0 rounded-lg border p-3 ${item.read ? 'border-[#edf0f4] dark:border-[#315069]' : 'border-[#84B3CE] bg-[#f3f8f8] dark:bg-[#173247]'}`}><div className="flex min-w-0 items-start gap-2"><div className="min-w-0 break-words text-sm font-bold">{item.title}</div>{!item.read && <span className="sr-only">Unread</span>}</div><p className="mt-1 break-words text-xs leading-5 text-[#718096] dark:text-[#b9d1df]">{item.message}</p><div className="mt-3 flex flex-wrap items-center gap-2"><button onClick={() => onTake(item.id, item.medicationId)} disabled={!item.medicationId} className="app-focus min-h-10 rounded-lg bg-[#1e7b8c] px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Take now</button><button onClick={() => onRead(item.id)} className="app-focus min-h-10 rounded-lg border border-[#dfe6ec] px-3 py-2 text-xs font-bold dark:border-[#315069]">Mark read</button><button onClick={() => onDismiss(item.id)} className="app-focus ml-auto flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-[#9aa5b4] hover:bg-[#f3f6f8] dark:hover:bg-[#173247]" aria-label={`Dismiss ${item.title}`}><X size={15} aria-hidden="true" /></button></div></div>)
+          : <p className="px-2 py-8 text-center text-xs text-[#718096] dark:text-[#b9d1df]">No reminders right now.</p>}
+      </div>
+    </Dialog.Popup>
+  </Dialog.Portal>
 }
 
 function InstallButton({ installEvent, onDone }: { installEvent: Event | null; onDone: () => void }) {
