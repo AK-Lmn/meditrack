@@ -10,6 +10,8 @@ import { db } from '@/lib/db'
 import { medicationReminders, medicationSchedules } from '@/lib/db/schema'
 import { and, eq, or } from 'drizzle-orm'
 
+import { buildOccurrenceKey, localDatetimeToUtc } from '@/lib/scheduler'
+
 export type ReminderPayload = {
   reminderId: number
   medicationId: number
@@ -18,14 +20,7 @@ export type ReminderPayload = {
   occurrenceKey: string
 }
 
-/**
- * Build a stable, unique occurrence key for a reminder.
- * Format: "<medicationId>:<ISO8601-date>T<HH:MM>"
- * Example: "7:2026-08-20T08:00"
- */
-export function buildOccurrenceKey(medicationId: number, localDate: string, timeOfDay: string): string {
-  return `${medicationId}:${localDate}T${timeOfDay}`
-}
+export { buildOccurrenceKey }
 
 /**
  * Compute the next UTC Date for a medication that fires at `timeOfDay` in `timezone`,
@@ -48,60 +43,20 @@ export function computeNextOccurrenceUtc(
     day: '2-digit',
   })
   const localDate = formatter.format(baseDate) // "YYYY-MM-DD"
-
-  // Build the local datetime string and parse to UTC
-  const [hour, minute] = (timeOfDay || '08:00').split(':').map(Number)
+  const cleanTime = timeOfDay || '08:00'
 
   // Create a Date representing `localDate` at `timeOfDay` in the user's timezone.
-  // We do this by creating a UTC date at midnight then offsetting via the timezone offset.
-  const candidate = localDatetimeToUtc(localDate, hour, minute, timezone)
+  const candidate = localDatetimeToUtc(localDate, cleanTime, timezone)
 
   // If the computed time is in the past (more than 30s ago), skip to tomorrow.
   if (candidate.getTime() < Date.now() - 30_000) {
     const tomorrow = new Date(baseDate.getTime() + 86_400_000)
     const tomorrowLocalDate = formatter.format(tomorrow)
-    const tomorrowUtc = localDatetimeToUtc(tomorrowLocalDate, hour, minute, timezone)
+    const tomorrowUtc = localDatetimeToUtc(tomorrowLocalDate, cleanTime, timezone)
     return { scheduledUtc: tomorrowUtc, localDate: tomorrowLocalDate }
   }
 
   return { scheduledUtc: candidate, localDate }
-}
-
-/**
- * Convert a local calendar date + time (in a given IANA timezone) to a UTC Date.
- * Uses the Temporal-like trick of parsing an ISO string with a placeholder UTC offset
- * then applying the actual offset.
- */
-function localDatetimeToUtc(localDate: string, hour: number, minute: number, timezone: string): Date {
-  // Build a reference Date in the middle of the day to find the timezone offset.
-  const refDate = new Date(`${localDate}T12:00:00Z`)
-
-  // Format the reference in the target timezone to find the offset.
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone || 'UTC',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-    timeZoneName: 'shortOffset',
-  }).formatToParts(refDate)
-
-  // Extract offset from timezone name (e.g. "GMT+8" → +480 minutes)
-  const tzPart = parts.find((p) => p.type === 'timeZoneName')?.value ?? 'GMT+0'
-  const offsetMatch = tzPart.match(/GMT([+-])(\d+)(?::(\d+))?/)
-  let offsetMinutes = 0
-  if (offsetMatch) {
-    const sign = offsetMatch[1] === '+' ? 1 : -1
-    offsetMinutes = sign * (parseInt(offsetMatch[2], 10) * 60 + parseInt(offsetMatch[3] ?? '0', 10))
-  }
-
-  // local time as UTC = (local datetime) - offset
-  const localMs =
-    new Date(`${localDate}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00Z`).getTime()
-  return new Date(localMs - offsetMinutes * 60_000)
 }
 
 /**

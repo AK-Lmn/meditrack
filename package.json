@@ -7,6 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push"
   },
@@ -37,8 +40,10 @@
     "@types/web-push": "^3.6.4",
     "dotenv": "^17.4.2",
     "drizzle-kit": "^0.31.10",
+    "eslint": "^10.9.1",
     "postcss": "^8.5",
     "tailwindcss": "^4.3.3",
-    "typescript": "5.7.3"
+    "typescript": "5.7.3",
+    "vitest": "^4.1.11"
   }
 }

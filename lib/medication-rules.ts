@@ -1,26 +1,28 @@
+import { cleanText, requireMedicationName, requireDosage, validateMedicationName, validateDosage } from './validation'
+import { calculateAdherenceScore } from './adherence'
+import { buildOccurrenceKey } from './scheduler'
+
 export const medicationColors = ['sky', 'violet', 'amber', 'rose'] as const
 export type MedicationColor = (typeof medicationColors)[number]
 
-export function cleanText(value: unknown, maxLength: number) {
-  return typeof value === 'string' ? value.trim().slice(0, maxLength) : ''
+export { cleanText, requireMedicationName, requireDosage, validateMedicationName, validateDosage }
+
+export function occurrenceKey(medicationId: number, date = new Date(), timeOfDay?: string): string {
+  const d = date instanceof Date ? date : new Date(date)
+  const iso = Number.isFinite(d.getTime()) ? d.toISOString() : new Date().toISOString()
+  const dateStr = iso.slice(0, 10)
+  if (timeOfDay) {
+    return buildOccurrenceKey(medicationId, dateStr, timeOfDay)
+  }
+  const timeStr = iso.slice(11, 16)
+  if (timeStr !== '00:00') {
+    return `${medicationId}:${dateStr}T${timeStr}`
+  }
+  return `${medicationId}:${dateStr}`
 }
 
-export function requireMedicationName(value: unknown) {
-  const name = cleanText(value, 80)
-  if (name.length < 2) throw new Error('Medication name must be at least 2 characters.')
-  return name
+export function percent(taken: number, total: number): number {
+  return total > 0 ? Math.round((taken / total) * 100) : 0
 }
 
-export function requireDosage(value: unknown) {
-  const dosage = cleanText(value, 40)
-  if (!dosage) throw new Error('Dosage is required.')
-  return dosage
-}
-
-export function occurrenceKey(medicationId: number, date = new Date()) {
-  return `${medicationId}:${date.toISOString().slice(0, 10)}`
-}
-
-export function percent(taken: number, total: number) {
-  return total ? Math.round((taken / total) * 100) : 0
-}
+export { calculateAdherenceScore }

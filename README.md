@@ -1,74 +1,237 @@
 # MediTrack
 
-A full-stack medication tracker and reminder application designed to simplify personal care plan management. 
+A full-stack medication tracker, scheduling engine, and reminder application designed to simplify personal care plan management.
 
-MediTrack allows users to schedule medications, log daily doses, track adherence, and receive background reminders through browser push notifications even when the web application is closed.
+MediTrack allows users to schedule medications across daily target times, recurring intervals, and multi-day cycles, log daily doses, track adherence streaks and completion, monitor inventory depletion, and receive background reminders through browser push notifications even when the web application is closed.
 
 ---
 
 ## Overview
 
-MediTrack provides a clean and secure interface to coordinate daily medication schedules. The platform focuses on user care plan tracking by offering:
-- **Care Plan Customization**: Users define medication details, colors, dosages, and schedules.
-- **Log Management**: A clear dashboard interface to log doses as taken, undo logs to correct errors, and track history.
-- **Background Deliveries**: Background reminders notify users at the exact scheduled local time via browser notifications.
-- **Adherence Insights**: Live streaks and completion calculations directly display progress on the dashboard.
-- **Universal Layout**: Optimized for desktop sidebar workflows and installable mobile Progressive Web App (PWA) drawer experiences.
+MediTrack provides a clean and secure interface to coordinate personal care plans with high resilience and deterministic scheduling:
+- **Care Plan Customization**: Users define medication details, colors, dosages, forms, and flexible regimens.
+- **Log Management & State Progression**: Clear dashboard interface to progress doses through verified states (`scheduled` -> `taken` | `missed` | `skipped`), revert logs, and prevent duplicate records.
+- **Inventory & Restock Engine**: Real-time stock depletion on dose logs, non-negative stock bounds, low-stock threshold boundary trips, and replenishment flows.
+- **Adherence & Streak Analytics**: Safe percentage calculations (resilient to divide-by-zero on empty histories), on-time vs. late vs. missed classification, and contiguous daily streak tracking.
+- **Background Deliveries**: Reliable background reminders notify users at their exact local time via Web Push and Upstash QStash.
+- **Universal Layout**: Optimized for desktop sidebar workflows and installable mobile Progressive Web App (PWA) experiences.
 
 ---
 
-## Features
+## Core State Data Structures & Schemas
 
-### Medication & Care Plan Management
-- **Add Medications**: Record name, dosage, frequency description, custom instructions, and custom color identifiers.
-- **Archive Medications**: Hide completed or changed medications without deleting historical dose logs.
-- **Schedule Times**: Bind medications to specific daily target times. Reminders are calculated relative to the user's selected local timezone.
+### 1. Medication State
+Represents a medication entry in the user's active care plan.
 
-### Dose Tracking & History
-- **Single-Tap Logs**: Mark scheduled medications as taken directly from the dashboard view.
-- **Dose Undo**: Revert accidental logs to keep records accurate.
-- **Searchable History**: Review all logged doses over time with a search filter.
+```typescript
+interface Medication {
+  id: number
+  userId: string
+  name: string                 // Cleaned text (min 2 chars, max 80)
+  dosage: string               // e.g. "10 mg"
+  dosageUnit: string           // e.g. "mg", "ml", "tablets"
+  form: string                 // "tablet" | "capsule" | "liquid" | "injection"
+  frequency: string            // "Once daily" | "Twice daily" | "Every 8 hours" | "As needed"
+  instructions: string | null  // Custom directions (e.g. "Take with food")
+  color: 'sky' | 'violet' | 'amber' | 'rose'
+  active: boolean              // Inactive preserves history when archived
+  startDate: string            // ISO YYYY-MM-DD
+  createdAt: Date
+  updatedAt: Date
+}
+```
 
-### Background Reminders
-- **Background Delivery**: Reminders are delivered outside the active tab, allowing users to stay informed even when the app is closed.
-- **VAPID Subscriptions**: Users register multiple browser instances or devices to receive push events.
-- **Stale Subscription Pruning**: Expired browser endpoints (HTTP 404/410) are removed from the database to keep delivery loops clean.
+### 2. Dose Record & State Machine
+Tracks individual scheduled and logged dose events.
 
-### Dynamic Themes & PWA
-- **Theme Selection**: Seamless support for Light, Dark, and System color preferences.
-- **Installable PWA**: Register and install the application as a standalone app on supported mobile and desktop browsers.
-- **Action Links**: Tapping notifications launches the application and redirects the user directly to their medicines list.
+```typescript
+type DoseStatus = 'scheduled' | 'taken' | 'missed' | 'skipped'
 
-### Secure Accounts
-- **Registration & Login**: Secure account creation with email and password.
-- **Private Data Workspace**: Separate user dashboards ensure users only access and modify their own medication records.
+interface DoseRecord {
+  id?: number
+  userId: string
+  medicationId: number
+  scheduledAt: Date            // Target UTC scheduled timestamp
+  takenAt?: Date | null        // Actual timestamp when marked taken
+  status: DoseStatus           // Strict state machine status
+  occurrenceKey: string        // Idempotency key: "<medicationId>:<YYYY-MM-DD>T<HH:MM>"
+  notes?: string | null
+}
+```
+
+#### Valid State Transitions
+
+```mermaid
+stateDiagram-v2
+    [*] --> scheduled: Regimen Generation
+    scheduled --> taken: takeDose()
+    scheduled --> missed: Due window elapsed
+    scheduled --> skipped: Patient skip
+    taken --> scheduled: undoDose()
+    missed --> taken: Retroactive log
+    missed --> scheduled: Reset
+    skipped --> scheduled: Reset
+```
+
+- **Duplicate Prevention**: Evaluated against composite unique index `(userId, occurrenceKey)`. Identical scheduled timestamps reject duplicate inserts.
+
+### 3. Regimen & Scheduling Engine Schema
+Supports daily specific times, fixed recurring intervals, and multi-day cycles.
+
+```typescript
+type RegimenConfig =
+  | {
+      type: 'daily_times'
+      times: string[] // e.g. ['08:00', '20:00']
+    }
+  | {
+      type: 'interval'
+      intervalHours: number // e.g. 6 (every 6 hours)
+      startTime: string     // '08:00' anchor
+    }
+  | {
+      type: 'cycle'
+      onDays: number        // e.g. 21 (days on medication)
+      offDays: number       // e.g. 7 (days off medication)
+      times: string[]       // e.g. ['09:00']
+      cycleStartDate: string // 'YYYY-MM-DD'
+    }
+```
+
+### 4. Inventory Tracking Schema
+Guarantees non-negative bounds and boundary-trip alerts.
+
+```typescript
+interface MedicationInventory {
+  medicationId: number
+  currentStock: number         // Always >= 0 (strictly floored)
+  lowStockThreshold: number    // Trips alert when currentStock <= threshold
+  unit?: string                // e.g. "tablets"
+  lastRestockedAt?: Date | null
+}
+
+interface StockAlert {
+  level: 'normal' | 'low' | 'empty'
+  message: string
+  currentStock: number
+  threshold: number
+}
+```
+
+### 5. Adherence & Streak Analytics Schema
+Calculates adherence rates with divide-by-zero protection and contiguous day streaks.
+
+```typescript
+interface AdherenceScore {
+  totalScheduled: number
+  takenCount: number
+  missedCount: number
+  skippedCount: number
+  onTimeCount: number          // Taken within allowable threshold (default 60m)
+  lateCount: number            // Taken after allowable threshold
+  adherenceRate: number        // 0 to 100% (safe against 0 totalScheduled)
+  onTimeRate: number           // 0 to 100%
+}
+
+interface StreakMetrics {
+  currentStreak: number        // Contiguous adherent days up to today
+  longestStreak: number        // Best historical contiguous streak
+}
+```
 
 ---
 
-## Reminder Architecture
+## Local Development & Setup
 
-MediTrack uses a serverless-friendly, push-based reminder flow. Rather than running persistent, polling background tasks, the system schedules reminders on demand:
+### Prerequisites
+- **Node.js**: `v20` or higher
+- **Package Manager**: `pnpm` (`v11` recommended) or `npm`
+- **PostgreSQL**: Neon serverless database (or local PostgreSQL)
 
-1. **Schedule Registration**: When a user creates a medication, the system calculates the local target time and converts it to a UTC epoch.
-2. **Background Queue**: A callback payload is registered with **Upstash QStash** containing the target UTC execution timestamp.
-3. **Trigger Event**: At the exact UTC time, QStash calls the MediTrack reminders endpoint.
-4. **Signature Verification**: The API route verifies the request's HMAC signature using signing keys to reject public requests.
-5. **State Claim**: The system validates the medication's active status and ownership, then atomically claims the reminder.
-6. **Push Event**: The server signs the reminder payload with a **VAPID Private Key** and forwards it to the browser push service.
-7. **Service Worker Delivery**: The browser's active service worker catches the push event, displays the notification, and handles click navigation.
-8. **Chained Recurrence**: After delivery, the system schedules the next daily occurrence.
+### 1. Clone & Install Dependencies
+```bash
+git clone https://github.com/AK-Lmn/meditrack.git
+cd meditrack
+pnpm install
+```
+
+### 2. Environment Variables
+Create a `.env.local` or `.env` file with the following variables:
+```bash
+DATABASE_URL=postgresql://user:password@endpoint.neon.tech/neondb?sslmode=require
+BETTER_AUTH_SECRET=your-random-32-character-secret
+BETTER_AUTH_URL=http://localhost:3000
+QSTASH_TOKEN=your-upstash-qstash-token
+QSTASH_CURRENT_SIGNING_KEY=your-upstash-current-signing-key
+QSTASH_NEXT_SIGNING_KEY=your-upstash-next-signing-key
+NEXT_PUBLIC_VAPID_PUBLIC_KEY=your-vapid-public-key
+VAPID_PRIVATE_KEY=your-vapid-private-key
+```
+
+### 3. Run Development Server
+```bash
+pnpm dev
+```
+Open [http://localhost:3000](http://localhost:3000) to view the application.
 
 ---
 
-## Reliability & Fault Tolerance
+## Verification & Testing
 
-The reminder delivery pipeline uses a database-backed state machine to handle network errors, server crashes, and duplicate events:
+MediTrack includes a deterministic unit and integration test suite powered by **Vitest**. Tests run completely isolated from external networks and databases in **< 500 ms**.
 
-- **State Machine States**: Every occurrence moves through states: `pending` (scheduled), `processing` (currently delivering), `delivered` (successful push), `failed` (transient failure), or `cancelled` (archived).
-- **At-Least-Once Delivery**: To ensure users do not miss critical medication times, the status transitions to `delivered` *after* the push notifications are accepted by the push service.
-- **Crash Recovery**: If a server instance crashes during delivery, the reminder remains in `processing`. On the next QStash retry, the system detects if the `processing` state has been active for more than 2 minutes. If it has, it classifies the job as stuck, resets it, and retries the delivery.
-- **Duplicate Protection**: Concurrent executions are resolved through atomic database updates. The second attempt is rejected with a `429` status code, forcing QStash to retry later. If the database indicates that a reminder has already transitioned to `delivered` or `cancelled`, the request exits immediately with `200` to prevent duplicate alerts.
-- **Notification Collapsing**: Notifications are sent with an occurrence-specific `tag`. If a duplicate push is delivered, the user's operating system collapses the alerts, preventing multiple pop-ups.
+```bash
+# Run unit & integration test suite once
+pnpm test
+
+# Run tests in interactive watch mode
+pnpm test:watch
+
+# Run TypeScript strict typecheck
+pnpm run typecheck
+
+# Run linter
+pnpm run lint
+
+# Build for production
+pnpm build
+```
+
+### Test Suite Coverage
+- `tests/scheduler.test.ts`:
+  - Regimen generation: daily times, recurring intervals crossing midnight, multi-day cycles ($X$ days on, $Y$ days off).
+  - Date math: leap years (Feb 29), month-end roll-overs (Jan 31 -> Feb 28/29, Apr 30 -> May 1), and year transitions (Dec 31 -> Jan 1).
+  - Timezone conversion across standard and daylight saving time (positive and negative GMT offsets).
+  - Dose state machine transitions (`scheduled` -> `taken`, `missed`, `skipped`, and undo).
+  - Duplicate occurrence prevention for identical scheduled timestamps.
+- `tests/inventory.test.ts`:
+  - Stock decrements accurately on dose logs.
+  - Non-negative stock count enforcement (never drops below 0).
+  - Low-inventory triggers trip at exact threshold boundaries (`currentStock <= threshold`).
+  - Replenishment & restock validation and alert clearing.
+- `tests/adherence.test.ts`:
+  - Adherence score calculation (% taken vs missed vs skipped).
+  - Divide-by-zero protection on empty histories (returns safe 0%).
+  - On-time vs late dose classification within allowable threshold.
+  - Contiguous day streak calculation and streak breakage on missed doses.
+- `tests/validation-and-persistence.test.ts`:
+  - Sanitization of medication names, whitespace rejection, min length enforcement.
+  - Rejection of negative quantities and invalid intervals.
+  - Strict 24-hour time format validation (`00:00` - `23:59`).
+  - Safe payload deserialization recovering from corrupted or outdated JSON without throwing or crashing the UI.
+
+---
+
+## Continuous Integration (CI) Pipeline
+
+GitHub Actions CI (`.github/workflows/ci.yml`) runs on every `push` and `pull_request` targeting the `main` branch.
+
+The CI workflow executes the following pipeline with exit-code enforcement:
+1. **Checkout & Environment Setup**: Checks out repo, installs Node.js v20 and pnpm with dependency cache.
+2. **Dependency Installation**: `pnpm install`
+3. **Linter Check**: `pnpm run lint`
+4. **Static Typecheck**: `pnpm run typecheck` (`tsc --noEmit`)
+5. **Deterministic Test Execution**: `pnpm run test` (runs all Vitest suites)
 
 ---
 
@@ -76,46 +239,18 @@ The reminder delivery pipeline uses a database-backed state machine to handle ne
 
 | Technology | Purpose |
 | :--- | :--- |
-| **Next.js** | Full-stack React framework (App Router) |
-| **React** | Component-based user interface |
-| **TypeScript** | Type-safe application development |
-| **Tailwind CSS** | Styling and responsive design |
-| **Better Auth** | Authentication and session management |
-| **Neon PostgreSQL** | Serverless relational database |
-| **Drizzle ORM** | Schema definition and database queries |
-| **Upstash QStash** | Serverless message scheduling and queue |
-| **Web Push** | Standard browser push notifications |
+| **Next.js 16** | Full-stack React framework (App Router) |
+| **React 19** | Modern UI component rendering |
+| **TypeScript 5.7** | Strict type safety across client and server |
+| **Vitest** | Deterministic, isolated, high-speed test runner |
+| **Tailwind CSS v4** | Modern fluid styling and theme tokens |
+| **Drizzle ORM** | Type-safe PostgreSQL queries and schema management |
+| **Better Auth** | Cookie-based session authentication |
+| **Upstash QStash** | Serverless message scheduling and background queue |
+| **Web Push** | Standard browser push notifications with VAPID |
 
 ---
 
-## Application Architecture
+## License
 
-The application is structured into the following layers:
-- **Presentation Layer**: React components handling state, layout routing, light/dark styling, and the PWA service worker.
-- **Business Logic Layer**: Server Actions managing medication mutations, logging, and timezone translation.
-- **Scheduling Layer**: Upstash QStash client delivering scheduled callbacks to verification middleware.
-- **Authentication Layer**: Better Auth handling login flows and verifying cookies/session headers.
-- **Persistence Layer**: Neon PostgreSQL database managed via Drizzle ORM schemas.
-
----
-
-## Design & Branding
-
-- **Modern Interface**: Uses fluid grids, CSS variables, and Tailwind themes.
-- **Branded Assets**: Custom MediTrack logo marks are placed in sidebar headers and authentication views.
-- **Accessible Loading Screen**: The application features a server-rendered branded loading screen that matches the user's selected theme background. It center-aligns the logo icon, features an animated loading bar, and respects OS `prefers-reduced-motion` settings.
-
----
-
-## Security & Privacy
-
-- **Server-Side Authorization**: Every action and database query checks the session user's ID against the target medication's owner ID.
-- **Credential Protection**: Database secrets, signing keys, and VAPID private keys are stored in secure environment variables and never exposed to the client.
-- **Callback Verification**: The reminder API endpoint enforces cryptographically signed HMAC signatures on all inbound QStash requests.
-- **Encrypted Payloads**: All Web Push notification payloads are encrypted using the browser's standard push protocol.
-
----
-
-## Project Status
-
-MediTrack is a finished medication tracking application featuring complete medication management, authentication, scheduled reminders, background browser push notifications, PWA support, and theme synchronization.
+Private repository. All rights reserved.

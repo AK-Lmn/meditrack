@@ -20,16 +20,48 @@ export async function listTodayDoses() {
 }
 
 export async function takeDose(medicationId: number, scheduledAt = new Date()) {
-  const userId = await getUserId()
-  const [owned] = await db.select({ id: medications.id }).from(medications).where(and(eq(medications.id, medicationId), eq(medications.userId, userId), eq(medications.active, true))).limit(1)
-  if (!owned) throw new Error('Medication not found.')
-  const key = occurrenceKey(medicationId, scheduledAt)
-  await db.insert(medicationLogs).values({ userId, medicationId, scheduledAt, takenAt: new Date(), status: 'taken', occurrenceKey: key }).onConflictDoUpdate({ target: [medicationLogs.userId, medicationLogs.occurrenceKey], set: { takenAt: new Date(), status: 'taken' } })
-  revalidatePath('/')
+  return recordDoseStatus(medicationId, 'taken', scheduledAt)
 }
 
 export async function undoDose(medicationId: number, scheduledAt = new Date()) {
+  return recordDoseStatus(medicationId, 'scheduled', scheduledAt)
+}
+
+export async function recordDoseStatus(
+  medicationId: number,
+  status: 'scheduled' | 'taken' | 'missed' | 'skipped',
+  scheduledAt = new Date()
+) {
   const userId = await getUserId()
-  await db.update(medicationLogs).set({ takenAt: null, status: 'scheduled' }).where(and(eq(medicationLogs.userId, userId), eq(medicationLogs.medicationId, medicationId), eq(medicationLogs.occurrenceKey, occurrenceKey(medicationId, scheduledAt))))
+  const [owned] = await db
+    .select({ id: medications.id })
+    .from(medications)
+    .where(and(eq(medications.id, medicationId), eq(medications.userId, userId), eq(medications.active, true)))
+    .limit(1)
+  if (!owned) throw new Error('Medication not found.')
+
+  const key = occurrenceKey(medicationId, scheduledAt)
+  const isTaken = status === 'taken'
+  const takenAt = isTaken ? new Date() : null
+
+  await db
+    .insert(medicationLogs)
+    .values({
+      userId,
+      medicationId,
+      scheduledAt,
+      takenAt,
+      status,
+      occurrenceKey: key,
+    })
+    .onConflictDoUpdate({
+      target: [medicationLogs.userId, medicationLogs.occurrenceKey],
+      set: {
+        takenAt,
+        status,
+      },
+    })
+
   revalidatePath('/')
 }
+
