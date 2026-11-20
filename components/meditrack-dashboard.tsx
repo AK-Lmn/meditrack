@@ -10,15 +10,15 @@ import { dismissNotification, getNotificationState, markNotificationRead, refres
 import { ThemeSelect } from '@/components/theme-provider'
 import { authClient } from '@/lib/auth-client'
 import { calculateStreak } from '@/lib/adherence'
-import { formatLocalDate, type ScheduledOccurrence } from '@/lib/scheduler'
+import { formatLocalDate, getDoseDisplayStatus, MISSED_DOSE_WINDOW_MS, type DoseDisplayStatus, type ScheduledOccurrence } from '@/lib/scheduler'
 import { formatDateForTimeZone, getGreetingForTimeZone, type TimeOfDayGreeting } from '@/lib/timezone-display'
 import { Activity, Bell, CalendarDays, Check, CheckCircle2, ChevronDown, Clock3, Download, FileText, LayoutDashboard, LogOut, Menu, MoreHorizontal, Pill, Plus, Search, Settings, ShieldCheck, TrendingUp, Undo2, X } from 'lucide-react'
 
-type Medication = { id: number; name: string; dosage: string; frequency: string; instructions: string | null; color: string; active: boolean; todayOccurrences: ScheduledOccurrence[] }
+type Medication = { id: number; name: string; dosage: string; frequency: string; instructions: string | null; color: string; active: boolean; todayOccurrences: ScheduledOccurrence[]; doseStatus?: DoseDisplayStatus }
 type Dose = { medicationId: number; status: string; scheduledAt: Date | string }
 type NotificationRow = { id: number; medicationId: number | null; title: string; message: string; read: boolean; createdAt: Date | string }
 type NotificationSettings = { medicationReminders: boolean; browserNotifications: boolean; timezone: string; reminderMinutesBefore: number }
-type ToastMessage = { id: number; kind: 'success' | 'error'; text: string; undoMedicationId?: number }
+type ToastMessage = { id: number; kind: 'success' | 'error'; text: string; undoMedicationId?: number; undoScheduledAt?: Date }
 type NotificationStatus = 'loading' | 'ready' | 'error'
 
 const nav = [
@@ -30,7 +30,7 @@ const nav = [
   ['Settings', '/settings', Settings],
 ] as const
 
-export default function MediTrackDashboard({ medications, doses, user, initialTimezone, initialGreeting, initialLocalDate }: { medications: Medication[]; doses: Dose[]; user: { name: string; email: string }; initialTimezone: string | null; initialGreeting: TimeOfDayGreeting | null; initialLocalDate: string | null }) {
+export default function MediTrackDashboard({ medications: initialMedications, doses, user, initialTimezone, initialGreeting, initialLocalDate, initialNow }: { medications: Medication[]; doses: Dose[]; user: { name: string; email: string }; initialTimezone: string | null; initialGreeting: TimeOfDayGreeting | null; initialLocalDate: string | null; initialNow: number }) {
   const pathname = usePathname()
   const router = useRouter()
   const activeLabel = nav.find((item) => item[1] === pathname)?.[0] ?? 'Dashboard'
@@ -49,6 +49,30 @@ export default function MediTrackDashboard({ medications, doses, user, initialTi
   const [permissionMessage, setPermissionMessage] = useState('')
   const [offline, setOffline] = useState(false)
   const [installEvent, setInstallEvent] = useState<Event | null>(null)
+
+  const [clock, setClock] = useState(initialNow)
+  const now = new Date(Math.max(clock, initialNow))
+  const medications = initialMedications.map((medicine) => {
+    const statuses = medicine.todayOccurrences.map((dose) => getDoseDisplayStatus(dose.scheduledUtc, now, findDoseLog(doses, medicine.id, dose)?.status))
+    const doseStatus = statuses.find((status) => status === 'missed')
+      ?? statuses.find((status) => status === 'overdue')
+      ?? statuses[0]
+    return { ...medicine, doseStatus }
+  })
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setClock(Date.now()), 15_000)
+    return () => window.clearInterval(interval)
+  }, [])
+
+  useEffect(() => {
+    const nextMissed = initialMedications.flatMap((medicine) => medicine.todayOccurrences)
+      .map((dose) => dose.scheduledUtc.getTime() + MISSED_DOSE_WINDOW_MS)
+      .filter((deadline) => deadline > initialNow)
+    if (!nextMissed.length) return
+    const timeout = window.setTimeout(() => router.refresh(), Math.max(0, Math.min(...nextMissed) - Date.now()))
+    return () => window.clearTimeout(timeout)
+  }, [initialMedications, initialNow, router])
 
   const takenIds = useMemo(() => new Set(doses.filter((dose) => dose.status === 'taken').map((dose) => dose.medicationId)), [doses])
   const filtered = useMemo(() => medications.filter((m) => m.name.toLowerCase().includes(query.toLowerCase())), [medications, query])
@@ -152,9 +176,11 @@ export default function MediTrackDashboard({ medications, doses, user, initialTi
     const wasTaken = takenIds.has(id)
     setPendingDoseId(id)
     try {
-      if (wasTaken) await undoDose(id)
-      else await takeDose(id)
-      setToast({ id: Date.now(), kind: 'success', text: wasTaken ? `${medicine?.name ?? 'Medication'} returned to scheduled.` : `${medicine?.name ?? 'Medication'} marked as taken.`, undoMedicationId: wasTaken ? undefined : id })
+      const existing = wasTaken ? todaysTakenDoses.find((dose) => dose.medicationId === id) : undefined
+      const scheduledAt = existing ? new Date(existing.scheduledAt) : medicine?.todayOccurrences.length === 1 ? medicine.todayOccurrences[0].scheduledUtc : new Date()
+      if (wasTaken) await undoDose(id, scheduledAt)
+      else await takeDose(id, scheduledAt)
+      setToast({ id: Date.now(), kind: 'success', text: wasTaken ? `${medicine?.name ?? 'Medication'} returned to scheduled.` : `${medicine?.name ?? 'Medication'} marked as taken.`, undoMedicationId: wasTaken ? undefined : id, undoScheduledAt: scheduledAt })
       router.refresh()
     } catch {
       setToast({ id: Date.now(), kind: 'error', text: 'Unable to update this dose. Please try again.' })
@@ -166,7 +192,7 @@ export default function MediTrackDashboard({ medications, doses, user, initialTi
   async function undoToastDose(id: number) {
     setPendingDoseId(id)
     try {
-      await undoDose(id)
+      await undoDose(id, toast?.undoScheduledAt)
       setToast({ id: Date.now(), kind: 'success', text: 'Dose returned to scheduled.' })
       router.refresh()
     } catch {
@@ -227,7 +253,7 @@ export default function MediTrackDashboard({ medications, doses, user, initialTi
         <div className="flex items-center gap-2"><InstallButton installEvent={installEvent} onDone={() => setInstallEvent(null)} /><div className="hidden sm:block"><ThemeSelect compact /></div><Dialog.Root open={notificationOpen} onOpenChange={setNotificationOpen}><Dialog.Trigger className="app-focus relative flex h-11 w-11 items-center justify-center rounded-lg text-[#7d8a9d] hover:bg-[#f3f6f8] dark:text-[#bdd5df] dark:hover:bg-[#173247]" aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'}><Bell size={19} aria-hidden="true" />{unread > 0 && <span aria-hidden="true" className="absolute right-2 top-2 min-w-4 rounded-full bg-[#bd6570] px-1 text-[10px] font-bold text-white">{unread}</span>}</Dialog.Trigger><NotificationPanel status={notificationStatus} notifications={notifications} onRead={(id) => startTransition(async () => { await markNotificationRead(id); setNotifications((items) => items.map((item) => item.id === id ? { ...item, read: true } : item)) })} onDismiss={(id) => startTransition(async () => { await dismissNotification(id); setNotifications((items) => items.filter((item) => item.id !== id)) })} onTake={(id, medicationId) => medicationId && startTransition(async () => { try { await takeNotificationDose(id); setNotifications((items) => items.map((item) => item.id === id ? { ...item, read: true } : item)); router.refresh() } catch { setToast({ id: Date.now(), kind: 'error', text: 'Unable to mark the scheduled dose as taken.' }) } })} /></Dialog.Root><div className="hidden h-7 w-px bg-[#e8ecf1] sm:block dark:bg-[#315069]" /><div className="hidden h-8 w-8 items-center justify-center rounded-full bg-[#dbe9ee] text-xs font-bold text-[#256b79] sm:flex dark:bg-[#173247] dark:text-[#f5eedd]">{initials}</div><ChevronDown size={14} className="hidden text-[#8c98a9] sm:block" /></div>
       </header>
       <div className="mx-auto max-w-[1380px] p-4 pb-24 sm:p-8 lg:pb-8">
-        {activeLabel === 'Settings' ? <SettingsView settings={settings} permissionMessage={permissionMessage} vapidConfigured={vapidConfigured} hasActiveSubscription={hasActiveSubscription} onToggleReminders={(enabled) => startTransition(async () => { await updateNotificationSettings({ ...settings, medicationReminders: enabled }); setSettings((current) => ({ ...current, medicationReminders: enabled })) })} onToggleTimezone={(tz) => startTransition(async () => { await updateNotificationSettings({ ...settings, timezone: tz }); setSettings((current) => ({ ...current, timezone: tz })) })} onEnableBrowser={enableBrowserNotifications} /> : <DashboardView activeLabel={activeLabel} medications={medications} doses={doses} filtered={filtered} takenIds={takenIds} todayTaken={todayTaken} streak={streakMetrics.currentStreak} pendingDoseId={pendingDoseId} query={query} setQuery={setQuery} setShowAdd={setShowAdd} toggleDose={toggleDose} archive={(medicine) => startTransition(async () => { try { await archiveMedication(medicine.id); setToast({ id: Date.now(), kind: 'success', text: `${medicine.name} archived.` }); router.refresh() } catch { setToast({ id: Date.now(), kind: 'error', text: `Unable to archive ${medicine.name}. Please try again.` }) } })} />}
+        {activeLabel === 'Settings' ? <SettingsView settings={settings} permissionMessage={permissionMessage} vapidConfigured={vapidConfigured} hasActiveSubscription={hasActiveSubscription} onToggleReminders={(enabled) => startTransition(async () => { await updateNotificationSettings({ ...settings, medicationReminders: enabled }); setSettings((current) => ({ ...current, medicationReminders: enabled })) })} onToggleTimezone={(tz) => startTransition(async () => { await updateNotificationSettings({ ...settings, timezone: tz }); setSettings((current) => ({ ...current, timezone: tz })) })} onEnableBrowser={enableBrowserNotifications} /> : <DashboardView activeLabel={activeLabel} medications={medications} doses={doses} now={now} filtered={filtered} takenIds={takenIds} todayTaken={todayTaken} streak={streakMetrics.currentStreak} pendingDoseId={pendingDoseId} query={query} setQuery={setQuery} setShowAdd={setShowAdd} toggleDose={toggleDose} archive={(medicine) => startTransition(async () => { try { await archiveMedication(medicine.id); setToast({ id: Date.now(), kind: 'success', text: `${medicine.name} archived.` }); router.refresh() } catch { setToast({ id: Date.now(), kind: 'error', text: `Unable to archive ${medicine.name}. Please try again.` }) } })} />}
       </div>
     </main>
     <BottomNav activeLabel={activeLabel} onMore={() => setMobileOpen(true)} />
@@ -277,11 +303,11 @@ function BottomNav({ activeLabel, onMore }: { activeLabel: string; onMore: () =>
   })}<button type="button" onClick={onMore} aria-label="Open more navigation options" className={`app-focus flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg text-[10px] font-bold ${moreActive ? 'text-[#146b7a] dark:text-[#84B3CE]' : 'text-[#718096] dark:text-[#b9d1df]'}`}><Menu size={19} aria-hidden="true" /><span>More</span></button></nav>
 }
 
-function DashboardView(props: { activeLabel: string; medications: Medication[]; doses: Dose[]; filtered: Medication[]; takenIds: Set<number>; todayTaken: number; streak?: number; pendingDoseId: number | null; query: string; setQuery: (value: string) => void; setShowAdd: (value: boolean) => void; toggleDose: (id: number) => void; archive: (medicine: Medication) => void }) {
+function DashboardView(props: { activeLabel: string; medications: Medication[]; doses: Dose[]; now: Date; filtered: Medication[]; takenIds: Set<number>; todayTaken: number; streak?: number; pendingDoseId: number | null; query: string; setQuery: (value: string) => void; setShowAdd: (value: boolean) => void; toggleDose: (id: number) => void; archive: (medicine: Medication) => void }) {
   const { activeLabel, medications, filtered, takenIds, todayTaken, streak = 0, pendingDoseId, query, setQuery, setShowAdd, toggleDose, archive } = props
   const scheduledDoseCount = medications.reduce((count, medicine) => count + Math.max(1, medicine.todayOccurrences.length), 0)
   if (activeLabel === 'Medicines') return <MedicinesView medications={medications} filtered={filtered} takenIds={takenIds} pendingDoseId={pendingDoseId} query={query} setQuery={setQuery} setShowAdd={setShowAdd} toggleDose={toggleDose} archive={archive} />
-  if (activeLabel === 'Schedule') return <ScheduleView medications={medications} doses={props.doses} />
+  if (activeLabel === 'Schedule') return <ScheduleView medications={medications} doses={props.doses} now={props.now} />
   if (activeLabel === 'History') return <HistoryView doses={medications.map((medicine) => ({ medicine, taken: takenIds.has(medicine.id) }))} />
   if (activeLabel === 'Analytics') return <Placeholder title="Analytics" text="Adherence analytics will grow as more logged dose history is available." />
   // Default: Dashboard home
@@ -352,7 +378,7 @@ function MedicationList({ filtered, takenIds, pendingDoseId, setShowAdd, toggleD
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="truncate text-sm font-bold sm:text-[15px]">{medicine.name}</h3>
-                  <StatusBadge taken={isTaken} asNeeded={medicine.frequency.toLowerCase().includes('needed')} />
+                  <StatusBadge status={medicine.doseStatus === 'missed' || medicine.doseStatus === 'overdue' ? medicine.doseStatus : isTaken ? 'taken' : medicine.frequency.toLowerCase().includes('needed') ? 'as-needed' : 'upcoming'} />
                 </div>
                 <div className="mt-1 text-sm font-semibold text-[#536479] dark:text-[#d4e2e8]">{medicine.dosage}</div>
                 <div className="mt-1 flex items-center gap-1.5 text-xs text-[#8491a3] dark:text-[#a8c4d3]">
@@ -391,7 +417,11 @@ function MedicationList({ filtered, takenIds, pendingDoseId, setShowAdd, toggleD
 }
 
 /** Dedicated full-screen medicines management view (route: /medicines). */
-function ScheduleView({ medications, doses }: { medications: Medication[]; doses: Dose[] }) {
+function findDoseLog(doses: Dose[], medicationId: number, occurrence: ScheduledOccurrence) {
+  return doses.find((dose) => dose.medicationId === medicationId && new Date(dose.scheduledAt).getTime() === occurrence.scheduledUtc.getTime())
+}
+
+function ScheduleView({ medications, doses, now }: { medications: Medication[]; doses: Dose[]; now: Date }) {
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState('')
   const scheduledDoses = medications.flatMap((medicine) => medicine.todayOccurrences.map((dose) => ({ medicine, dose })))
@@ -401,10 +431,12 @@ function ScheduleView({ medications, doses }: { medications: Medication[]; doses
     <h2 className="text-base font-bold">Today&apos;s doses</h2>
     {scheduledDoses.length ? <ul className="mt-4 space-y-2">
       {scheduledDoses.map(({ medicine, dose }) => {
-        const taken = doses.some((log) => log.medicationId === medicine.id && log.status === 'taken' && new Date(log.scheduledAt).getTime() === dose.scheduledUtc.getTime())
+        const status = getDoseDisplayStatus(dose.scheduledUtc, now, findDoseLog(doses, medicine.id, dose)?.status)
+        const taken = status === 'taken'
         return <li key={dose.occurrenceKey} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#edf0f4] p-3 text-sm dark:border-[#315069]">
           <span className="min-w-0 break-words">{medicine.name} · {medicine.dosage}</span>
           <time className="shrink-0 font-semibold" dateTime={dose.scheduledUtc.toISOString()}>{dose.timeOfDay}</time>
+          <StatusBadge status={status} />
           <button type="button" disabled={pending} className="app-focus min-h-11 rounded-lg px-2 font-semibold" onClick={() => startTransition(async () => {
             setError('')
             try {
@@ -476,9 +508,11 @@ function MedicinesView({ medications, filtered, takenIds, pendingDoseId, query, 
   )
 }
 
-function StatusBadge({ taken, asNeeded }: { taken: boolean; asNeeded: boolean }) {
-  if (taken) return <span className="inline-flex items-center gap-1 rounded-full bg-[#e7f6ef] px-2 py-0.5 text-[10px] font-bold text-[#31835c] dark:bg-[#143c31] dark:text-[#8bd9ad]"><CheckCircle2 size={11} aria-hidden="true" /> Taken</span>
-  if (asNeeded) return <span className="inline-flex items-center gap-1 rounded-full bg-[#eaf2f8] px-2 py-0.5 text-[10px] font-bold text-[#557790] dark:bg-[#173247] dark:text-[#b9d1df]"><Pill size={11} aria-hidden="true" /> As needed</span>
+function StatusBadge({ status }: { status: DoseDisplayStatus | 'as-needed' }) {
+  if (status === 'taken') return <span className="inline-flex items-center gap-1 rounded-full bg-[#e7f6ef] px-2 py-0.5 text-[10px] font-bold text-[#31835c] dark:bg-[#143c31] dark:text-[#8bd9ad]"><CheckCircle2 size={11} aria-hidden="true" /> Taken</span>
+  if (status === 'as-needed') return <span className="inline-flex items-center gap-1 rounded-full bg-[#eaf2f8] px-2 py-0.5 text-[10px] font-bold text-[#557790] dark:bg-[#173247] dark:text-[#b9d1df]"><Pill size={11} aria-hidden="true" /> As needed</span>
+  if (status === 'missed' || status === 'overdue') return <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-800 dark:bg-red-950 dark:text-red-200"><Clock3 size={11} aria-hidden="true" /> {status === 'missed' ? 'Missed' : 'Overdue'}</span>
+  if (status === 'skipped') return <span className="text-xs font-semibold">Skipped</span>
   return <span className="inline-flex items-center gap-1 rounded-full bg-[#fff3e2] px-2 py-0.5 text-[10px] font-bold text-[#9c681c] dark:bg-[#3a2f19] dark:text-[#f0bd66]"><Clock3 size={11} aria-hidden="true" /> Upcoming</span>
 }
 

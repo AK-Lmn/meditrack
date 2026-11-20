@@ -135,7 +135,8 @@ export async function generateDueNotificationsForUser(userId: string, now = new 
     const key = occurrenceKey(row.medication.id, scheduledAt)
     const [taken] = await db.select({ id: medicationLogs.id }).from(medicationLogs).where(and(eq(medicationLogs.userId, userId), eq(medicationLogs.medicationId, row.medication.id), eq(medicationLogs.occurrenceKey, key), eq(medicationLogs.status, 'taken'))).limit(1)
     if (taken) continue
-    const [log] = await db.insert(medicationLogs).values({ userId, medicationId: row.medication.id, scheduledAt, status: 'scheduled', occurrenceKey: key }).onConflictDoUpdate({ target: [medicationLogs.userId, medicationLogs.occurrenceKey], set: { status: 'scheduled' } }).returning()
+    const [log] = await db.insert(medicationLogs).values({ userId, medicationId: row.medication.id, scheduledAt, status: 'scheduled', occurrenceKey: key }).onConflictDoUpdate({ target: [medicationLogs.userId, medicationLogs.occurrenceKey], set: { status: 'scheduled' }, setWhere: eq(medicationLogs.status, 'scheduled') }).returning()
+    if (!log) continue
     await db.insert(notifications).values({
       userId,
       medicationId: row.medication.id,

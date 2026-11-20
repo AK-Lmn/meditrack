@@ -5,6 +5,15 @@
  */
 
 export type DoseStatus = 'scheduled' | 'taken' | 'missed' | 'skipped'
+export type DoseDisplayStatus = 'upcoming' | 'overdue' | 'missed' | 'taken' | 'skipped'
+export const MISSED_DOSE_WINDOW_MS = 60 * 60_000
+
+export function getDoseDisplayStatus(scheduledAt: Date, now: Date, status?: string): DoseDisplayStatus {
+  if (status === 'taken' || status === 'skipped' || status === 'missed') return status
+  const elapsed = now.getTime() - scheduledAt.getTime()
+  if (elapsed >= MISSED_DOSE_WINDOW_MS) return 'missed'
+  return elapsed > 0 ? 'overdue' : 'upcoming'
+}
 
 export type RegimenType = 'daily_times' | 'interval' | 'cycle'
 
