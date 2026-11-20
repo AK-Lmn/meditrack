@@ -19,7 +19,7 @@ export async function getNotificationState(endpoint?: string) {
   const userId = await getUserId()
   await generateDueNotificationsForUser(userId)
   const [settings] = await db.select().from(notificationSettings).where(eq(notificationSettings.userId, userId)).limit(1)
-  const rows = await db.select().from(notifications).where(and(eq(notifications.userId, userId), eq(notifications.dismissed, false))).orderBy(desc(notifications.createdAt)).limit(20)
+  const rows = await listNotifications(userId)
   
   const [subscription] = endpoint ? await db
     .select({ id: pushSubscriptions.id })
@@ -36,6 +36,16 @@ export async function getNotificationState(endpoint?: string) {
     vapidConfigured: isVapidConfigured(),
     hasActiveSubscription: Boolean(subscription) && Boolean(settings?.browserNotifications),
   }
+}
+
+export async function refreshNotifications() {
+  return listNotifications(await getUserId())
+}
+
+function listNotifications(userId: string) {
+  return db.select().from(notifications)
+    .where(and(eq(notifications.userId, userId), eq(notifications.dismissed, false)))
+    .orderBy(desc(notifications.createdAt), desc(notifications.id)).limit(20)
 }
 
 export async function updateNotificationSettings(input: { medicationReminders?: boolean; browserNotifications?: boolean; timezone?: string }) {

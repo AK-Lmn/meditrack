@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState, useTransition } from 'react'
 import { Dialog } from '@base-ui/react/dialog'
 import { archiveMedication, createMedication } from '@/app/actions/medications'
 import { takeDose, undoDose } from '@/app/actions/doses'
-import { dismissNotification, getNotificationState, markNotificationRead, savePushSubscription, updateNotificationSettings } from '@/app/actions/notifications'
+import { dismissNotification, getNotificationState, markNotificationRead, refreshNotifications, savePushSubscription, updateNotificationSettings } from '@/app/actions/notifications'
 import { ThemeSelect } from '@/components/theme-provider'
 import { authClient } from '@/lib/auth-client'
 import { calculateStreak } from '@/lib/adherence'
@@ -102,6 +102,39 @@ export default function MediTrackDashboard({ medications, doses, user, initialTi
       setHasActiveSubscription(state.hasActiveSubscription)
     }).catch(() => setNotificationStatus('error'))
   }, [initialTimezone])
+
+  useEffect(() => {
+    let disposed = false
+    let refreshing = false
+
+    async function refresh() {
+      if (document.visibilityState !== 'visible' || !navigator.onLine || refreshing) return
+      refreshing = true
+      try {
+        const rows = await refreshNotifications()
+        if (!disposed) {
+          setNotifications(rows)
+          setNotificationStatus('ready')
+        }
+      } catch {
+        // Keep the last visible inbox. The next interval or focus change retries.
+      } finally {
+        refreshing = false
+      }
+    }
+
+    const interval = window.setInterval(refresh, 15_000)
+    window.addEventListener('focus', refresh)
+    window.addEventListener('online', refresh)
+    document.addEventListener('visibilitychange', refresh)
+    return () => {
+      disposed = true
+      window.clearInterval(interval)
+      window.removeEventListener('focus', refresh)
+      window.removeEventListener('online', refresh)
+      document.removeEventListener('visibilitychange', refresh)
+    }
+  }, [])
 
   useEffect(() => {
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => undefined)
