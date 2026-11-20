@@ -63,7 +63,7 @@ export async function createMedication(input: { name: unknown; dosage: unknown; 
     console.error('[createMedication] Failed to schedule reminder:', err instanceof Error ? err.message : err)
   })
 
-  revalidatePath('/')
+  revalidatePath('/', 'layout')
   return medication
 }
 
@@ -88,5 +88,5 @@ export async function archiveMedication(id: number) {
     console.error('[archiveMedication] Failed to cancel reminders:', err instanceof Error ? err.message : err)
   })
 
-  revalidatePath('/')
+  revalidatePath('/', 'layout')
 }

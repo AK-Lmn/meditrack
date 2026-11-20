@@ -62,6 +62,6 @@ export async function recordDoseStatus(
       },
     })
 
-  revalidatePath('/')
+  revalidatePath('/', 'layout')
 }
 
