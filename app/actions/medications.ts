@@ -5,6 +5,7 @@ import { db } from '@/lib/db'
 import { medicationSchedules, medications, notificationSettings } from '@/lib/db/schema'
 import { cleanText, medicationColors, requireDosage, requireMedicationName } from '@/lib/medication-rules'
 import { scheduleReminder, cancelRemindersForMedication } from '@/lib/reminder-scheduler'
+import type { DailyTimesRegimen } from '@/lib/scheduler'
 import { and, desc, eq } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
@@ -20,26 +21,37 @@ export async function listMedications() {
   return db.select().from(medications).where(eq(medications.userId, userId)).orderBy(desc(medications.createdAt))
 }
 
-export async function createMedication(input: { name: unknown; dosage: unknown; frequency?: unknown; instructions?: unknown; color?: unknown; timeOfDay?: unknown }) {
+export async function createMedication(input: { name: unknown; dosage: unknown; frequency?: unknown; instructions?: unknown; color?: unknown; timeOfDay?: unknown; secondTimeOfDay?: unknown }) {
   const userId = await getUserId()
+  const frequency = cleanText(input.frequency, 40) || 'Once daily'
+  const regimen: DailyTimesRegimen = {
+    type: 'daily_times',
+    times: [cleanText(input.timeOfDay, 20) || '08:00'],
+  }
+  if (frequency.toLowerCase() === 'twice daily') {
+    regimen.times.push(cleanText(input.secondTimeOfDay, 20) || '20:00')
+  }
+  if (regimen.times.some((time) => !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) || new Set(regimen.times).size !== regimen.times.length) {
+    throw new Error('Choose a valid, distinct due time for each dose.')
+  }
 
-  const [medication] = await db.insert(medications).values({
-    userId,
-    name: requireMedicationName(input.name),
-    dosage: requireDosage(input.dosage),
-    frequency: cleanText(input.frequency, 40) || 'Once daily',
-    instructions: cleanText(input.instructions, 240) || null,
-    color: medicationColors.includes(input.color as MedicationColor) ? input.color as MedicationColor : 'sky',
-  }).returning()
-
-  const timeOfDay = cleanText(input.timeOfDay, 20) || '08:00'
-
-  const [schedule] = await db.insert(medicationSchedules).values({
-    userId,
-    medicationId: medication.id,
-    timeOfDay,
-    frequency: medication.frequency,
-  }).returning()
+  const { medication, schedules } = await db.transaction(async (tx) => {
+    const [medication] = await tx.insert(medications).values({
+      userId,
+      name: requireMedicationName(input.name),
+      dosage: requireDosage(input.dosage),
+      frequency,
+      instructions: cleanText(input.instructions, 240) || null,
+      color: medicationColors.includes(input.color as MedicationColor) ? input.color as MedicationColor : 'sky',
+    }).returning()
+    const schedules = await tx.insert(medicationSchedules).values(regimen.times.map((timeOfDay) => ({
+      userId,
+      medicationId: medication.id,
+      timeOfDay,
+      frequency,
+    }))).returning()
+    return { medication, schedules }
+  })
 
   // Schedule first QStash reminder using the user's stored timezone.
   // This is intentionally non-blocking — a scheduling failure should not
@@ -53,15 +65,11 @@ export async function createMedication(input: { name: unknown; dosage: unknown; 
 
   const timezone = userSettings?.timezone || 'UTC'
 
-  scheduleReminder({
-    userId,
-    medicationId: medication.id,
-    scheduleId: schedule.id,
-    timeOfDay,
-    timezone,
-  }).catch((err) => {
-    console.error('[createMedication] Failed to schedule reminder:', err instanceof Error ? err.message : err)
-  })
+  for (const schedule of schedules) {
+    scheduleReminder({ userId, medicationId: medication.id, scheduleId: schedule.id, timeOfDay: schedule.timeOfDay, timezone }).catch((err) => {
+      console.error('[createMedication] Failed to schedule reminder:', err instanceof Error ? err.message : err)
+    })
+  }
 
   revalidatePath('/', 'layout')
   return medication
