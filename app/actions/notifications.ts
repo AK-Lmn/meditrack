@@ -5,7 +5,7 @@ import { db } from '@/lib/db'
 import { medicationLogs, medicationSchedules, medications, notifications, notificationSettings, pushSubscriptions } from '@/lib/db/schema'
 import { occurrenceKey } from '@/lib/medication-rules'
 import { isVapidConfigured } from '@/lib/web-push'
-import { and, count, desc, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 
@@ -15,17 +15,17 @@ async function getUserId() {
   return session.user.id
 }
 
-export async function getNotificationState() {
+export async function getNotificationState(endpoint?: string) {
   const userId = await getUserId()
   await generateDueNotificationsForUser(userId)
   const [settings] = await db.select().from(notificationSettings).where(eq(notificationSettings.userId, userId)).limit(1)
   const rows = await db.select().from(notifications).where(and(eq(notifications.userId, userId), eq(notifications.dismissed, false))).orderBy(desc(notifications.createdAt)).limit(20)
   
-  // Count active push subscriptions for the user
-  const [subCountRow] = await db
-    .select({ count: count() })
+  const [subscription] = endpoint ? await db
+    .select({ id: pushSubscriptions.id })
     .from(pushSubscriptions)
-    .where(eq(pushSubscriptions.userId, userId))
+    .where(and(eq(pushSubscriptions.userId, userId), eq(pushSubscriptions.endpoint, endpoint)))
+    .limit(1) : []
 
   return {
     settings: settings ?? { userId, medicationReminders: true, browserNotifications: false, reminderMinutesBefore: 0, timezone: 'UTC', updatedAt: new Date() },
@@ -34,8 +34,7 @@ export async function getNotificationState() {
     publicVapidKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? '',
     /** Whether VAPID is fully configured on the server (both keys present) */
     vapidConfigured: isVapidConfigured(),
-    /** Whether the user has at least one active push subscription */
-    hasActiveSubscription: Number(subCountRow?.count ?? 0) > 0,
+    hasActiveSubscription: Boolean(subscription) && Boolean(settings?.browserNotifications),
   }
 }
 
