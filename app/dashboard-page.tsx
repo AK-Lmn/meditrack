@@ -13,16 +13,17 @@ export async function DashboardPage() {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) redirect('/sign-in')
   const [medicationRows, [settingsRow], schedules, doseRows] = await Promise.all([
-    db.select().from(medications).where(and(eq(medications.userId, session.user.id), eq(medications.active, true))),
+    db.select().from(medications).where(eq(medications.userId, session.user.id)),
     db.select({ timezone: notificationSettings.timezone }).from(notificationSettings).where(eq(notificationSettings.userId, session.user.id)).limit(1),
     db.select({ medicationId: medicationSchedules.medicationId, timeOfDay: medicationSchedules.timeOfDay }).from(medicationSchedules).where(and(eq(medicationSchedules.userId, session.user.id), eq(medicationSchedules.enabled, true))),
-    db.select({ medicationId: medicationLogs.medicationId, status: medicationLogs.status, scheduledAt: medicationLogs.scheduledAt }).from(medicationLogs).where(eq(medicationLogs.userId, session.user.id)),
+    db.select({ id: medicationLogs.id, medicationId: medicationLogs.medicationId, status: medicationLogs.status, scheduledAt: medicationLogs.scheduledAt, takenAt: medicationLogs.takenAt }).from(medicationLogs).where(eq(medicationLogs.userId, session.user.id)),
   ])
-  const timezone = settingsRow?.timezone ?? null
   const now = new Date()
+  const localDate = formatDateForTimeZone(settingsRow?.timezone, now)
+  const timezone = localDate ? settingsRow.timezone : null
   const scheduleTimezone = timezone ?? 'UTC'
   const today = formatLocalDate(now, scheduleTimezone)
-  const recentOccurrences = medicationRows.map((medication) => ({
+  const recentOccurrences = medicationRows.filter((medication) => medication.active).map((medication) => ({
     ...medication,
     occurrences: medication.frequency.toLowerCase().includes('needed') ? [] : generateDailyOccurrences(
       medication.id,
@@ -44,12 +45,18 @@ export async function DashboardPage() {
       target: [medicationLogs.userId, medicationLogs.occurrenceKey],
       set: { status: 'missed' },
       setWhere: eq(medicationLogs.status, 'scheduled'),
-    }).returning({ medicationId: medicationLogs.medicationId, status: medicationLogs.status, scheduledAt: medicationLogs.scheduledAt }) : []
-  const recordedKeys = new Set(recordedMissed.map((dose) => occurrenceKey(dose.medicationId, dose.scheduledAt)))
-  const doses = [...recordedMissed, ...doseRows.filter((dose) => !recordedKeys.has(occurrenceKey(dose.medicationId, dose.scheduledAt)))]
+    }).returning({ id: medicationLogs.id, medicationId: medicationLogs.medicationId, status: medicationLogs.status, scheduledAt: medicationLogs.scheduledAt, takenAt: medicationLogs.takenAt }) : []
+  const recordedIds = new Set(recordedMissed.map((dose) => dose.id))
+  const medicationsById = new Map(medicationRows.map((medication) => [medication.id, medication]))
+  const doses = [...recordedMissed, ...doseRows.filter((dose) => !recordedIds.has(dose.id))]
+    .sort((a, b) => b.scheduledAt.getTime() - a.scheduledAt.getTime() || b.id - a.id)
+    .map((dose) => {
+      const medication = medicationsById.get(dose.medicationId)
+      return { ...dose, name: medication?.name ?? 'Medication unavailable', dosage: medication?.dosage ?? null }
+    })
   const scheduledMedications = recentOccurrences.map(({ occurrences, ...medication }) => ({
     ...medication,
     todayOccurrences: occurrences.filter((dose) => dose.localDate === today),
   }))
-  return <MediTrackDashboard key={session.user.id} medications={scheduledMedications} doses={doses} user={{ name: session.user.name, email: session.user.email }} initialTimezone={timezone} initialGreeting={getGreetingForTimeZone(timezone, now)} initialLocalDate={formatDateForTimeZone(timezone, now)} initialNow={now.getTime()} />
+  return <MediTrackDashboard key={session.user.id} medications={scheduledMedications} doses={doses} user={{ name: session.user.name, email: session.user.email }} initialTimezone={timezone} initialGreeting={getGreetingForTimeZone(timezone, now)} initialLocalDate={localDate} initialNow={now.getTime()} />
 }
