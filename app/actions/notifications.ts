@@ -2,8 +2,10 @@
 
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { medicationLogs, medicationSchedules, medications, notifications, notificationSettings, pushSubscriptions } from '@/lib/db/schema'
+import { medicationLogs, medicationReminders, medicationSchedules, medications, notifications, notificationSettings, pushSubscriptions } from '@/lib/db/schema'
 import { occurrenceKey } from '@/lib/medication-rules'
+import { localDatetimeToUtc } from '@/lib/scheduler'
+import { takeDose } from './doses'
 import { isVapidConfigured } from '@/lib/web-push'
 import { and, desc, eq } from 'drizzle-orm'
 import { headers } from 'next/headers'
@@ -72,6 +74,32 @@ export async function markNotificationRead(id: number) {
   const userId = await getUserId()
   await db.update(notifications).set({ read: true }).where(and(eq(notifications.id, id), eq(notifications.userId, userId)))
   revalidatePath('/')
+}
+
+export async function takeNotificationDose(id: number) {
+  const userId = await getUserId()
+  const [notification] = await db.select().from(notifications)
+    .where(and(eq(notifications.id, id), eq(notifications.userId, userId), eq(notifications.dismissed, false))).limit(1)
+  if (!notification?.medicationId || notification.type !== 'medication_due') throw new Error('Dose reminder not found.')
+
+  const [reminder] = await db.select({ scheduledFor: medicationReminders.scheduledFor }).from(medicationReminders)
+    .where(and(eq(medicationReminders.userId, userId), eq(medicationReminders.medicationId, notification.medicationId), eq(medicationReminders.occurrenceKey, notification.occurrenceKey))).limit(1)
+  let scheduledAt = reminder?.scheduledFor
+
+  if (!scheduledAt) {
+    // Legacy in-app reminders encode their wall-clock time in the occurrence key.
+    const [medicationId, occurrence] = notification.occurrenceKey.split(/:(?=\d{4}-)/)
+    const match = occurrence?.match(/^(\d{4}-\d{2}-\d{2})(?:T([01]\d|2[0-3]):([0-5]\d))?$/)
+    if (medicationId !== String(notification.medicationId) || !match) throw new Error('Reminder has no scheduled dose.')
+    const [, date, hour = '00', minute = '00'] = match
+    const [settings] = await db.select({ timezone: notificationSettings.timezone }).from(notificationSettings)
+      .where(eq(notificationSettings.userId, userId)).limit(1)
+    scheduledAt = localDatetimeToUtc(date, `${hour}:${minute}`, settings?.timezone ?? 'UTC')
+  }
+
+  await takeDose(notification.medicationId, scheduledAt)
+  await db.update(notifications).set({ read: true })
+    .where(and(eq(notifications.id, id), eq(notifications.userId, userId)))
 }
 
 export async function dismissNotification(id: number) {
