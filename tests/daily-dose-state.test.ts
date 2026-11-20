@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { calculateStreak } from '../lib/adherence'
-import { getDailyDoseState } from '../lib/daily-dose-state'
+import { getDailyDoseState, summarizeDailyAdherence } from '../lib/daily-dose-state'
 import { occurrenceKey } from '../lib/medication-rules'
 import { formatLocalDate, generateDailyOccurrences } from '../lib/scheduler'
 
@@ -30,6 +30,23 @@ describe('daily medication state', () => {
     const legacy = new Date('2026-11-21T04:05:00Z')
     const state = getDailyDoseState([morning], [{ scheduledAt: legacy, status: 'taken' }], day, timezone)
     expect(state).toMatchObject({ complete: true, target: legacy })
+  })
+
+  it('counts a partially completed twice-daily schedule by dose', () => {
+    const state = getDailyDoseState(schedule, [{ scheduledAt: morning.scheduledUtc, status: 'taken' }], day, timezone)
+    expect(summarizeDailyAdherence([state])).toEqual({ scheduled: 2, taken: 1, remaining: 1, percent: 50 })
+  })
+
+  it('returns zero after archiving the only active medication', () => {
+    expect(summarizeDailyAdherence([])).toEqual({ scheduled: 0, taken: 0, remaining: 0, percent: 0 })
+  })
+
+  it('keeps an archived taken record and an as-needed log out of the active scheduled totals', () => {
+    const archivedLog = { scheduledAt: morning.scheduledUtc, status: 'taken' }
+    const active = getDailyDoseState([evening], [], day, timezone)
+    const asNeeded = getDailyDoseState([], [archivedLog], day, timezone)
+    expect(asNeeded.takenCount).toBe(1)
+    expect(summarizeDailyAdherence([active, asNeeded])).toEqual({ scheduled: 1, taken: 0, remaining: 1, percent: 0 })
   })
 
   it('does not extend a streak for a partial day and clears it as soon as today is missed', () => {
