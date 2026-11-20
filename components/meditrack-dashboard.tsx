@@ -7,6 +7,7 @@ import { Dialog } from '@base-ui/react/dialog'
 import { archiveMedication, createMedication } from '@/app/actions/medications'
 import { takeDose, undoDose } from '@/app/actions/doses'
 import { dismissNotification, getNotificationState, markNotificationRead, refreshNotifications, savePushSubscription, takeNotificationDose, updateNotificationSettings } from '@/app/actions/notifications'
+import { DoseAnalytics, DoseHistory, type DoseHistoryEntry } from '@/components/dose-history'
 import { ThemeSelect } from '@/components/theme-provider'
 import { authClient } from '@/lib/auth-client'
 import { calculateStreak } from '@/lib/adherence'
@@ -31,7 +32,7 @@ const nav = [
   ['Settings', '/settings', Settings],
 ] as const
 
-export default function MediTrackDashboard({ medications: initialMedications, doses, user, initialTimezone, initialGreeting, initialLocalDate, initialNow }: { medications: Medication[]; doses: Dose[]; user: { name: string; email: string }; initialTimezone: string | null; initialGreeting: TimeOfDayGreeting | null; initialLocalDate: string | null; initialNow: number }) {
+export default function MediTrackDashboard({ medications: initialMedications, doses, user, initialTimezone, initialGreeting, initialLocalDate, initialNow }: { medications: Medication[]; doses: DoseHistoryEntry[]; user: { name: string; email: string }; initialTimezone: string | null; initialGreeting: TimeOfDayGreeting | null; initialLocalDate: string | null; initialNow: number }) {
   const pathname = usePathname()
   const router = useRouter()
   const activeLabel = nav.find((item) => item[1] === pathname)?.[0] ?? 'Dashboard'
@@ -72,7 +73,7 @@ export default function MediTrackDashboard({ medications: initialMedications, do
   const initials = user.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()
   const todayTaken = [...dailyStates.values()].reduce((total, state) => total + state.takenCount, 0)
   const unread = notifications.filter((item) => !item.read).length
-  const streakRecords = doses.filter((dose) => dose.status !== 'scheduled'
+  const streakRecords: Dose[] = doses.filter((dose) => dose.status !== 'scheduled'
     || !dailyStates.has(dose.medicationId) || formatLocalDate(new Date(dose.scheduledAt), timezone) !== today)
   for (const [id, state] of dailyStates) {
     for (const dose of state.pending) {
@@ -266,7 +267,7 @@ export default function MediTrackDashboard({ medications: initialMedications, do
         <div className="flex items-center gap-2"><InstallButton installEvent={installEvent} onDone={() => setInstallEvent(null)} /><div className="hidden sm:block"><ThemeSelect compact /></div><Dialog.Root open={notificationOpen} onOpenChange={setNotificationOpen}><Dialog.Trigger className="app-focus relative flex h-11 w-11 items-center justify-center rounded-lg text-[#7d8a9d] hover:bg-[#f3f6f8] dark:text-[#bdd5df] dark:hover:bg-[#173247]" aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'}><Bell size={19} aria-hidden="true" />{unread > 0 && <span aria-hidden="true" className="absolute right-2 top-2 min-w-4 rounded-full bg-[#bd6570] px-1 text-[10px] font-bold text-white">{unread}</span>}</Dialog.Trigger><NotificationPanel status={notificationStatus} notifications={notifications} onRead={(id) => startTransition(async () => { await markNotificationRead(id); setNotifications((items) => items.map((item) => item.id === id ? { ...item, read: true } : item)) })} onDismiss={(id) => startTransition(async () => { await dismissNotification(id); setNotifications((items) => items.filter((item) => item.id !== id)) })} onTake={(id, medicationId) => medicationId && startTransition(async () => { try { await takeNotificationDose(id); setNotifications((items) => items.map((item) => item.id === id ? { ...item, read: true } : item)); router.refresh() } catch { setToast({ id: Date.now(), kind: 'error', text: 'Unable to mark the scheduled dose as taken.' }) } })} /></Dialog.Root><div className="hidden h-7 w-px bg-[#e8ecf1] sm:block dark:bg-[#315069]" /><div className="hidden h-8 w-8 items-center justify-center rounded-full bg-[#dbe9ee] text-xs font-bold text-[#256b79] sm:flex dark:bg-[#173247] dark:text-[#f5eedd]">{initials}</div><ChevronDown size={14} className="hidden text-[#8c98a9] sm:block" /></div>
       </header>
       <div className="mx-auto max-w-[1380px] p-4 pb-24 sm:p-8 lg:pb-8">
-        {activeLabel === 'Settings' ? <SettingsView settings={settings} permissionMessage={permissionMessage} vapidConfigured={vapidConfigured} hasActiveSubscription={hasActiveSubscription} onToggleReminders={(enabled) => startTransition(async () => { await updateNotificationSettings({ ...settings, medicationReminders: enabled }); setSettings((current) => ({ ...current, medicationReminders: enabled })) })} onToggleTimezone={(tz) => startTransition(async () => { await updateNotificationSettings({ ...settings, timezone: tz }); setSettings((current) => ({ ...current, timezone: tz })) })} onEnableBrowser={enableBrowserNotifications} /> : <DashboardView activeLabel={activeLabel} medications={medications} doses={doses} now={now} filtered={filtered} takenIds={takenIds} todayTaken={todayTaken} streak={streakMetrics.currentStreak} pendingDoseId={pendingDoseId} query={query} setQuery={setQuery} setShowAdd={setShowAdd} toggleDose={toggleDose} archive={(medicine) => startTransition(async () => { try { await archiveMedication(medicine.id); setToast({ id: Date.now(), kind: 'success', text: `${medicine.name} archived.` }); router.refresh() } catch { setToast({ id: Date.now(), kind: 'error', text: `Unable to archive ${medicine.name}. Please try again.` }) } })} />}
+        {activeLabel === 'Settings' ? <SettingsView settings={settings} permissionMessage={permissionMessage} vapidConfigured={vapidConfigured} hasActiveSubscription={hasActiveSubscription} onToggleReminders={(enabled) => startTransition(async () => { await updateNotificationSettings({ ...settings, medicationReminders: enabled }); setSettings((current) => ({ ...current, medicationReminders: enabled })) })} onToggleTimezone={(tz) => startTransition(async () => { await updateNotificationSettings({ ...settings, timezone: tz }); setSettings((current) => ({ ...current, timezone: tz })) })} onEnableBrowser={enableBrowserNotifications} /> : <DashboardView activeLabel={activeLabel} medications={medications} doses={doses} timezone={timezone} today={today} now={now} filtered={filtered} takenIds={takenIds} todayTaken={todayTaken} streak={streakMetrics.currentStreak} pendingDoseId={pendingDoseId} query={query} setQuery={setQuery} setShowAdd={setShowAdd} toggleDose={toggleDose} archive={(medicine) => startTransition(async () => { try { await archiveMedication(medicine.id); setToast({ id: Date.now(), kind: 'success', text: `${medicine.name} archived.` }); router.refresh() } catch { setToast({ id: Date.now(), kind: 'error', text: `Unable to archive ${medicine.name}. Please try again.` }) } })} />}
       </div>
     </main>
     <BottomNav activeLabel={activeLabel} onMore={() => setMobileOpen(true)} />
@@ -316,13 +317,13 @@ function BottomNav({ activeLabel, onMore }: { activeLabel: string; onMore: () =>
   })}<button type="button" onClick={onMore} aria-label="Open more navigation options" className={`app-focus flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg text-[10px] font-bold ${moreActive ? 'text-[#146b7a] dark:text-[#84B3CE]' : 'text-[#718096] dark:text-[#b9d1df]'}`}><Menu size={19} aria-hidden="true" /><span>More</span></button></nav>
 }
 
-function DashboardView(props: { activeLabel: string; medications: Medication[]; doses: Dose[]; now: Date; filtered: Medication[]; takenIds: Set<number>; todayTaken: number; streak?: number; pendingDoseId: number | null; query: string; setQuery: (value: string) => void; setShowAdd: (value: boolean) => void; toggleDose: (id: number) => void; archive: (medicine: Medication) => void }) {
+function DashboardView(props: { activeLabel: string; medications: Medication[]; doses: DoseHistoryEntry[]; timezone: string; today: string; now: Date; filtered: Medication[]; takenIds: Set<number>; todayTaken: number; streak?: number; pendingDoseId: number | null; query: string; setQuery: (value: string) => void; setShowAdd: (value: boolean) => void; toggleDose: (id: number) => void; archive: (medicine: Medication) => void }) {
   const { activeLabel, medications, filtered, takenIds, todayTaken, streak = 0, pendingDoseId, query, setQuery, setShowAdd, toggleDose, archive } = props
   const scheduledDoseCount = medications.reduce((count, medicine) => count + Math.max(1, medicine.todayOccurrences.length), 0)
   if (activeLabel === 'Medicines') return <MedicinesView medications={medications} filtered={filtered} takenIds={takenIds} pendingDoseId={pendingDoseId} query={query} setQuery={setQuery} setShowAdd={setShowAdd} toggleDose={toggleDose} archive={archive} />
   if (activeLabel === 'Schedule') return <ScheduleView medications={medications} doses={props.doses} now={props.now} />
-  if (activeLabel === 'History') return <HistoryView doses={medications.map((medicine) => ({ medicine, taken: takenIds.has(medicine.id) }))} />
-  if (activeLabel === 'Analytics') return <Placeholder title="Analytics" text="Adherence analytics will grow as more logged dose history is available." />
+  if (activeLabel === 'History') return <DoseHistory doses={props.doses} timezone={props.timezone} />
+  if (activeLabel === 'Analytics') return <DoseAnalytics doses={props.doses} today={props.today} timezone={props.timezone} />
   // Default: Dashboard home
   return (
     <>
@@ -337,7 +338,7 @@ function DashboardView(props: { activeLabel: string; medications: Medication[]; 
           <div className="flex items-start justify-between">
             <div>
               <h2 className="text-base font-bold">Adherence overview</h2>
-              <p className="mt-1 text-xs text-[#8a96a8] dark:text-[#a8c4d3]">Live data will appear as you log doses.</p>
+              <p className="mt-1 text-xs text-[#8a96a8] dark:text-[#a8c4d3]">{scheduledDoseCount ? `${todayTaken} of ${scheduledDoseCount} doses taken today.` : 'No doses scheduled today.'}</p>
             </div>
             <TrendingUp size={18} className="text-[#1e7b8c] dark:text-[#84B3CE]" />
           </div>
@@ -350,18 +351,7 @@ function DashboardView(props: { activeLabel: string; medications: Medication[]; 
           </div>
         </section>
       </div>
-      <section className="mt-6 rounded-2xl border border-[#e5eaf1] bg-white p-5 shadow-[0_2px_8px_rgba(31,52,76,0.025)] sm:p-6 dark:border-[#254258] dark:bg-[#132b3b]">
-        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-          <div>
-            <h2 className="text-base font-bold">Medication history</h2>
-            <p className="mt-1 text-xs text-[#8a96a8] dark:text-[#a8c4d3]">A clear record of your recent doses.</p>
-          </div>
-          <div className="relative">
-            <Search size={15} className="absolute left-3 top-3 text-[#9aa6b5]" />
-            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search medication" className="h-10 w-full rounded-lg border border-[#e3e8ee] bg-[#fbfcfd] pl-9 pr-3 text-xs outline-none placeholder:text-[#a5afbc] focus:border-[#8ecbd0] sm:w-48 dark:border-[#315069] dark:bg-[#173247] dark:text-[#f5eedd]" />
-          </div>
-        </div>
-      </section>
+      <DoseHistory doses={props.doses} timezone={props.timezone} recent />
     </>
   )
 }
@@ -645,14 +635,6 @@ function NotificationPanel({ status, notifications, onRead, onDismiss, onTake }:
 function InstallButton({ installEvent, onDone }: { installEvent: Event | null; onDone: () => void }) {
   if (!installEvent) return null
   return <button onClick={async () => { await (installEvent as Event & { prompt?: () => Promise<void> }).prompt?.(); onDone() }} className="hidden h-10 items-center gap-1 rounded-lg border border-[#dfe6ec] px-3 text-xs font-bold sm:flex dark:border-[#315069]" aria-label="Install MediTrack"><Download size={15} /> Install</button>
-}
-
-function HistoryView({ doses }: { doses: { medicine: Medication; taken: boolean }[] }) {
-  return <section className="rounded-2xl border border-[#e5eaf1] bg-white p-5 dark:border-[#254258] dark:bg-[#132b3b]"><h2 className="text-base font-bold">Medication history</h2><div className="mt-4 space-y-2">{doses.map(({ medicine, taken }) => <div key={medicine.id} className="flex items-center justify-between rounded-lg border border-[#edf0f4] p-3 text-sm dark:border-[#315069]"><span>{medicine.name}</span><span className={taken ? 'text-[#31835c]' : 'text-[#c58b35]'}>{taken ? 'Taken today' : 'Scheduled'}</span></div>)}</div></section>
-}
-
-function Placeholder({ title, text }: { title: string; text: string }) {
-  return <section className="rounded-2xl border border-[#e5eaf1] bg-white p-8 dark:border-[#254258] dark:bg-[#132b3b]"><h2 className="text-lg font-bold">{title}</h2><p className="mt-2 max-w-xl text-sm text-[#718096] dark:text-[#b9d1df]">{text}</p></section>
 }
 
 function AddMedication({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
