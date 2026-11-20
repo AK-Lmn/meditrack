@@ -168,7 +168,9 @@ NEXT_PUBLIC_VAPID_PUBLIC_KEY=your-vapid-public-key
 VAPID_PRIVATE_KEY=your-vapid-private-key
 ```
 
-Set `RESEND_API_KEY` and `MEDITRACK_AUTH_EMAIL_FROM` (a verified Resend sender) to enable email password recovery. Set `NEXT_PUBLIC_MEDITRACK_TERMS_URL` and `NEXT_PUBLIC_MEDITRACK_PRIVACY_URL` to the published policy pages to show those links on the authentication forms.
+To enable email password recovery, set `AGENTMAIL_API_KEY` and `MEDITRACK_AUTH_AGENTMAIL_INBOX` to a verified AgentMail account's API key and sending inbox ID. For Resend, set `RESEND_API_KEY` and `MEDITRACK_AUTH_EMAIL_FROM` to a verified sender. AgentMail takes precedence when both providers are configured.
+
+Set `NEXT_PUBLIC_MEDITRACK_TERMS_URL` and `NEXT_PUBLIC_MEDITRACK_PRIVACY_URL` to the published policy pages to show those links on the authentication forms.
 
 ### 3. Run Development Server
 ```bash
