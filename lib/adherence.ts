@@ -4,7 +4,7 @@
  * and safeguards against divide-by-zero on empty histories.
  */
 
-import { formatLocalDate } from './scheduler'
+import { addDaysToDateString, formatLocalDate } from './scheduler'
 
 export interface AdherenceInputRecord {
   scheduledAt: Date | string
@@ -120,16 +120,18 @@ export function calculateStreak(
   }
 
   // Group records by local date
-  const dayMap = new Map<string, { taken: number; missed: number; total: number }>()
+  const todayStr = formatLocalDate(referenceDate, timezone)
+  const dayMap = new Map<string, { taken: number; missed: number; pending: number }>()
 
   for (const r of records) {
     const d = new Date(r.scheduledAt)
     if (!Number.isFinite(d.getTime())) continue
     const dateKey = formatLocalDate(d, timezone)
-    const current = dayMap.get(dateKey) ?? { taken: 0, missed: 0, total: 0 }
-    current.total++
+    if (dateKey > todayStr) continue
+    const current = dayMap.get(dateKey) ?? { taken: 0, missed: 0, pending: 0 }
     if (r.status === 'taken') current.taken++
     if (r.status === 'missed') current.missed++
+    if (r.status === 'scheduled') current.pending++
     dayMap.set(dateKey, current)
   }
 
@@ -144,7 +146,7 @@ export function calculateStreak(
 
   for (let i = 0; i < sortedDates.length; i++) {
     const dayStats = dayMap.get(sortedDates[i])!
-    const isCompliant = dayStats.taken > 0 && dayStats.missed === 0
+    const isCompliant = dayStats.taken > 0 && dayStats.missed === 0 && dayStats.pending === 0
 
     if (isCompliant) {
       // Check if contiguous with previous day
@@ -167,20 +169,17 @@ export function calculateStreak(
   }
 
   // Calculate current streak from reference date
-  const todayStr = formatLocalDate(referenceDate, timezone)
-  const yesterdayDate = new Date(referenceDate.getTime() - 86_400_000)
-  const yesterdayStr = formatLocalDate(yesterdayDate, timezone)
+  const todayStats = dayMap.get(todayStr)
+  const yesterdayStr = addDaysToDateString(todayStr, -1)
 
   let currentStreak = 0
-  let checkDate = dayMap.has(todayStr) && dayMap.get(todayStr)!.taken > 0 ? todayStr : yesterdayStr
+  let checkDate = todayStats && (todayStats.missed > 0 || (todayStats.taken > 0 && todayStats.pending === 0)) ? todayStr : yesterdayStr
 
   while (dayMap.has(checkDate)) {
     const stats = dayMap.get(checkDate)!
-    if (stats.taken > 0 && stats.missed === 0) {
+    if (stats.taken > 0 && stats.missed === 0 && stats.pending === 0) {
       currentStreak++
-      const [y, m, d] = checkDate.split('-').map(Number)
-      const prev = new Date(Date.UTC(y, m - 1, d - 1, 12, 0, 0))
-      checkDate = `${prev.getUTCFullYear()}-${String(prev.getUTCMonth() + 1).padStart(2, '0')}-${String(prev.getUTCDate()).padStart(2, '0')}`
+      checkDate = addDaysToDateString(checkDate, -1)
     } else {
       break
     }
