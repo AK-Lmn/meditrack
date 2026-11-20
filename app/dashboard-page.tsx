@@ -56,7 +56,9 @@ export async function DashboardPage() {
     })
   const scheduledMedications = recentOccurrences.map(({ occurrences, ...medication }) => ({
     ...medication,
+    scheduleTimes: schedules.filter((schedule) => schedule.medicationId === medication.id).map((schedule) => schedule.timeOfDay).sort(),
     todayOccurrences: occurrences.filter((dose) => dose.localDate === today),
   }))
-  return <MediTrackDashboard key={session.user.id} medications={scheduledMedications} doses={doses} user={{ name: session.user.name, email: session.user.email }} initialTimezone={timezone} initialGreeting={getGreetingForTimeZone(timezone, now)} initialLocalDate={localDate} initialNow={now.getTime()} />
+  const archived = medicationRows.filter((medication) => !medication.active).map(({ id, name, dosage }) => ({ id, name, dosage }))
+  return <MediTrackDashboard key={session.user.id} medications={scheduledMedications} archivedMedications={archived} doses={doses} user={{ name: session.user.name, email: session.user.email }} initialTimezone={timezone} initialGreeting={getGreetingForTimeZone(timezone, now)} initialLocalDate={localDate} initialNow={now.getTime()} />
 }

@@ -8,7 +8,7 @@
 import { getAppUrl, getQStashClient } from '@/lib/qstash'
 import { db } from '@/lib/db'
 import { medicationReminders, medicationSchedules } from '@/lib/db/schema'
-import { and, eq, or } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 
 import { buildOccurrenceKey, localDatetimeToUtc } from '@/lib/scheduler'
 
@@ -78,6 +78,9 @@ export async function scheduleReminder({
   timezone: string
   afterDate?: Date
 }): Promise<{ reminderId: number | null; skipped: boolean }> {
+  const [schedule] = await db.select({ id: medicationSchedules.id }).from(medicationSchedules)
+    .where(and(eq(medicationSchedules.id, scheduleId), eq(medicationSchedules.userId, userId), eq(medicationSchedules.medicationId, medicationId), eq(medicationSchedules.enabled, true))).limit(1)
+  if (!schedule) return { reminderId: null, skipped: true }
   const occurrence = computeNextOccurrenceUtc(timeOfDay, timezone, afterDate)
   if (!occurrence) return { reminderId: null, skipped: true }
 
@@ -91,8 +94,13 @@ export async function scheduleReminder({
     .where(and(eq(medicationReminders.userId, userId), eq(medicationReminders.occurrenceKey, occurrenceKey)))
     .limit(1)
 
-  if (existing) {
-    // Already exists — skip
+  if (existing?.status === 'delivered' && !afterDate) {
+    return scheduleReminder({ userId, medicationId, scheduleId, timeOfDay, timezone, afterDate: scheduledUtc })
+  }
+  if (existing?.status === 'cancelled') {
+    // A replacement gets a new ID so old queued deliveries cannot claim it.
+    await db.delete(medicationReminders).where(and(eq(medicationReminders.id, existing.id), eq(medicationReminders.status, 'cancelled')))
+  } else if (existing) {
     return { reminderId: existing.id, skipped: true }
   }
 
@@ -113,7 +121,8 @@ export async function scheduleReminder({
       qstashMessageId: null,
       status: 'pending',
       updatedAt: new Date(),
-    }).returning()
+    }).onConflictDoNothing({ target: [medicationReminders.userId, medicationReminders.occurrenceKey] }).returning()
+    if (!inserted) return { reminderId: null, skipped: true }
 
     const payload: ReminderPayload = {
       reminderId: inserted.id,
@@ -143,101 +152,13 @@ export async function scheduleReminder({
   }
 }
 
-/**
- * Cancel all pending (pending or failed) reminders for a medication.
- * Attempts to delete QStash messages where we have IDs.
- * Even if QStash cancel fails, the DB marks them cancelled so the endpoint refuses delivery.
- */
-export async function cancelRemindersForMedication(medicationId: number, userId: string): Promise<void> {
-  // Get all cancellable reminders
-  const pending = await db
-    .select({ id: medicationReminders.id, qstashMessageId: medicationReminders.qstashMessageId })
-    .from(medicationReminders)
-    .where(
-      and(
-        eq(medicationReminders.medicationId, medicationId),
-        eq(medicationReminders.userId, userId),
-        or(
-          eq(medicationReminders.status, 'pending'),
-          eq(medicationReminders.status, 'failed'),
-        ),
-      ),
-    )
-
-  if (pending.length === 0) return
-
-  // Mark all as cancelled in DB first — this is the safety net
-  await db.update(medicationReminders)
-    .set({ status: 'cancelled', updatedAt: new Date() })
-    .where(
-      and(
-        eq(medicationReminders.medicationId, medicationId),
-        eq(medicationReminders.userId, userId),
-        or(
-          eq(medicationReminders.status, 'pending'),
-          eq(medicationReminders.status, 'failed'),
-        ),
-      ),
-    )
-
-  // Best-effort: try to cancel QStash messages
+export async function cancelQueuedMessages(reminders: { qstashMessageId: string | null }[]) {
+  const ids = reminders.flatMap(({ qstashMessageId }) => qstashMessageId ? [qstashMessageId] : [])
+  if (!ids.length) return
   try {
     const qstash = getQStashClient()
-    for (const reminder of pending) {
-      if (reminder.qstashMessageId) {
-        try {
-          await qstash.messages.delete(reminder.qstashMessageId)
-        } catch {
-          // QStash cancel failure is non-fatal; DB status='cancelled' is the real guard
-        }
-      }
-    }
+    await Promise.allSettled(ids.map((id) => qstash.messages.delete(id)))
   } catch {
-    // QStash client instantiation failure (e.g. QSTASH_TOKEN not set) — non-fatal
+    // The reminder row has already been cancelled or deleted.
   }
-}
-
-/**
- * Cancel all pending reminders for a schedule (used when a schedule is disabled/changed).
- */
-export async function cancelRemindersForSchedule(scheduleId: number, userId: string): Promise<void> {
-  const pending = await db
-    .select({ id: medicationReminders.id, qstashMessageId: medicationReminders.qstashMessageId })
-    .from(medicationReminders)
-    .where(
-      and(
-        eq(medicationReminders.scheduleId, scheduleId),
-        eq(medicationReminders.userId, userId),
-        or(
-          eq(medicationReminders.status, 'pending'),
-          eq(medicationReminders.status, 'failed'),
-        ),
-      ),
-    )
-
-  if (pending.length === 0) return
-
-  await db.update(medicationReminders)
-    .set({ status: 'cancelled', updatedAt: new Date() })
-    .where(
-      and(
-        eq(medicationReminders.scheduleId, scheduleId),
-        eq(medicationReminders.userId, userId),
-        or(
-          eq(medicationReminders.status, 'pending'),
-          eq(medicationReminders.status, 'failed'),
-        ),
-      ),
-    )
-
-  try {
-    const qstash = getQStashClient()
-    for (const reminder of pending) {
-      if (reminder.qstashMessageId) {
-        try {
-          await qstash.messages.delete(reminder.qstashMessageId)
-        } catch { /* non-fatal */ }
-      }
-    }
-  } catch { /* non-fatal */ }
 }

@@ -2,13 +2,14 @@
 
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { medicationSchedules, medications, notificationSettings } from '@/lib/db/schema'
+import { medicationLogs, medicationReminders, medicationSchedules, medications, notifications, notificationSettings } from '@/lib/db/schema'
 import { cleanText, medicationColors, requireDosage, requireMedicationName } from '@/lib/medication-rules'
-import { scheduleReminder, cancelRemindersForMedication } from '@/lib/reminder-scheduler'
+import { scheduleReminder, cancelQueuedMessages } from '@/lib/reminder-scheduler'
 import type { DailyTimesRegimen } from '@/lib/scheduler'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
 
 async function getUserId() {
   const session = await auth.api.getSession({ headers: await headers() })
@@ -21,8 +22,9 @@ export async function listMedications() {
   return db.select().from(medications).where(eq(medications.userId, userId)).orderBy(desc(medications.createdAt))
 }
 
-export async function createMedication(input: { name: unknown; dosage: unknown; frequency?: unknown; instructions?: unknown; color?: unknown; timeOfDay?: unknown; secondTimeOfDay?: unknown }) {
-  const userId = await getUserId()
+type MedicationInput = { name: unknown; dosage: unknown; frequency?: unknown; instructions?: unknown; color?: unknown; timeOfDay?: unknown; secondTimeOfDay?: unknown }
+
+function medicationFields(input: MedicationInput) {
   const frequency = cleanText(input.frequency, 40) || 'Once daily'
   const regimen: DailyTimesRegimen = {
     type: 'daily_times',
@@ -35,16 +37,23 @@ export async function createMedication(input: { name: unknown; dosage: unknown; 
     throw new Error('Choose a valid, distinct due time for each dose.')
   }
 
+  return { name: requireMedicationName(input.name), dosage: requireDosage(input.dosage), frequency, times: regimen.times }
+}
+
+export async function createMedication(input: MedicationInput) {
+  const userId = await getUserId()
+  const { name, dosage, frequency, times } = medicationFields(input)
+
   const { medication, schedules } = await db.transaction(async (tx) => {
     const [medication] = await tx.insert(medications).values({
       userId,
-      name: requireMedicationName(input.name),
-      dosage: requireDosage(input.dosage),
+      name,
+      dosage,
       frequency,
       instructions: cleanText(input.instructions, 240) || null,
       color: medicationColors.includes(input.color as MedicationColor) ? input.color as MedicationColor : 'sky',
     }).returning()
-    const schedules = await tx.insert(medicationSchedules).values(regimen.times.map((timeOfDay) => ({
+    const schedules = await tx.insert(medicationSchedules).values(times.map((timeOfDay) => ({
       userId,
       medicationId: medication.id,
       timeOfDay,
@@ -53,10 +62,12 @@ export async function createMedication(input: { name: unknown; dosage: unknown; 
     return { medication, schedules }
   })
 
-  // Schedule first QStash reminder using the user's stored timezone.
-  // This is intentionally non-blocking — a scheduling failure should not
-  // prevent the medication from being saved. The user will still see the
-  // medication in the UI and the in-app notification system still functions.
+  after(() => scheduleMedicationReminders(userId, medication.id, schedules))
+  revalidatePath('/', 'layout')
+  return medication
+}
+
+async function scheduleMedicationReminders(userId: string, medicationId: number, schedules: { id: number; timeOfDay: string }[]) {
   const [userSettings] = await db
     .select({ timezone: notificationSettings.timezone })
     .from(notificationSettings)
@@ -65,36 +76,79 @@ export async function createMedication(input: { name: unknown; dosage: unknown; 
 
   const timezone = userSettings?.timezone || 'UTC'
 
-  for (const schedule of schedules) {
-    scheduleReminder({ userId, medicationId: medication.id, scheduleId: schedule.id, timeOfDay: schedule.timeOfDay, timezone }).catch((err) => {
-      console.error('[createMedication] Failed to schedule reminder:', err instanceof Error ? err.message : err)
-    })
-  }
-
-  revalidatePath('/', 'layout')
-  return medication
+  await Promise.all(schedules.map((schedule) => scheduleReminder({ userId, medicationId, scheduleId: schedule.id, timeOfDay: schedule.timeOfDay, timezone })))
 }
 
 type MedicationColor = (typeof medicationColors)[number]
 
 export async function archiveMedication(id: number) {
   const userId = await getUserId()
-
-  // Mark medication inactive
-  await db.update(medications)
-    .set({ active: false, updatedAt: new Date() })
-    .where(and(eq(medications.id, id), eq(medications.userId, userId)))
-
-  // Disable all schedules
-  await db.update(medicationSchedules)
-    .set({ enabled: false })
-    .where(and(eq(medicationSchedules.medicationId, id), eq(medicationSchedules.userId, userId)))
-
-  // Cancel all pending QStash reminders and mark them cancelled in DB.
-  // Even if QStash cancel fails, the DB cancelled=true flag prevents delivery.
-  cancelRemindersForMedication(id, userId).catch((err) => {
-    console.error('[archiveMedication] Failed to cancel reminders:', err instanceof Error ? err.message : err)
+  const cancelled = await db.transaction(async (tx) => {
+    const [medication] = await tx.update(medications).set({ active: false, updatedAt: new Date() })
+      .where(and(eq(medications.id, id), eq(medications.userId, userId), eq(medications.active, true))).returning({ id: medications.id })
+    if (!medication) return []
+    await tx.update(medicationSchedules).set({ enabled: false })
+      .where(and(eq(medicationSchedules.medicationId, id), eq(medicationSchedules.userId, userId)))
+    await tx.update(notifications).set({ read: true, dismissed: true })
+      .where(and(eq(notifications.medicationId, id), eq(notifications.userId, userId)))
+    return tx.update(medicationReminders).set({ status: 'cancelled', updatedAt: new Date() })
+      .where(and(eq(medicationReminders.medicationId, id), eq(medicationReminders.userId, userId), inArray(medicationReminders.status, ['pending', 'failed', 'processing'])))
+      .returning({ qstashMessageId: medicationReminders.qstashMessageId })
   })
+  after(() => cancelQueuedMessages(cancelled))
+  revalidatePath('/', 'layout')
+}
 
+export async function editMedication(id: number, input: MedicationInput) {
+  const userId = await getUserId()
+  const { name, dosage, frequency, times } = medicationFields(input)
+  const data = await db.transaction(async (tx) => {
+    const [owned] = await tx.update(medications).set({ name, dosage, frequency, updatedAt: new Date() })
+      .where(and(eq(medications.id, id), eq(medications.userId, userId), eq(medications.active, true))).returning({ id: medications.id })
+    if (!owned) throw new Error('Active medication not found.')
+    const scope = and(eq(medicationSchedules.medicationId, id), eq(medicationSchedules.userId, userId))
+    const existing = await tx.select().from(medicationSchedules).where(scope)
+    const retained = existing.filter((schedule) => schedule.enabled && times.includes(schedule.timeOfDay))
+    const removed = existing.filter((schedule) => !retained.includes(schedule)).map((schedule) => schedule.id)
+    const added = times.filter((time) => !retained.some((schedule) => schedule.timeOfDay === time))
+    const cancelled = removed.length ? await tx.update(medicationReminders).set({ status: 'cancelled', updatedAt: new Date() })
+      .where(and(eq(medicationReminders.userId, userId), inArray(medicationReminders.scheduleId, removed), inArray(medicationReminders.status, ['pending', 'failed', 'processing'])))
+      .returning({ qstashMessageId: medicationReminders.qstashMessageId }) : []
+    if (removed.length) await tx.delete(medicationSchedules).where(and(scope, inArray(medicationSchedules.id, removed)))
+    if (retained.length) await tx.update(medicationSchedules).set({ frequency }).where(and(scope, inArray(medicationSchedules.id, retained.map((schedule) => schedule.id))))
+    const schedules = added.length ? await tx.insert(medicationSchedules).values(added.map((timeOfDay) => ({ userId, medicationId: id, timeOfDay, frequency }))).returning() : []
+    return { cancelled, schedules }
+  })
+  after(async () => {
+    await Promise.all([cancelQueuedMessages(data.cancelled), scheduleMedicationReminders(userId, id, data.schedules)])
+  })
+  revalidatePath('/', 'layout')
+}
+
+export async function restoreMedication(id: number) {
+  const userId = await getUserId()
+  const schedules = await db.transaction(async (tx) => {
+    const [owned] = await tx.update(medications).set({ active: true, updatedAt: new Date() })
+      .where(and(eq(medications.id, id), eq(medications.userId, userId), eq(medications.active, false))).returning({ id: medications.id })
+    if (!owned) throw new Error('Archived medication not found.')
+    return tx.update(medicationSchedules).set({ enabled: true })
+      .where(and(eq(medicationSchedules.medicationId, id), eq(medicationSchedules.userId, userId))).returning()
+  })
+  after(() => scheduleMedicationReminders(userId, id, schedules))
+  revalidatePath('/', 'layout')
+}
+
+export async function deleteMedication(id: number) {
+  const userId = await getUserId()
+  const cancelled = await db.transaction(async (tx) => {
+    const [owned] = await tx.delete(medications).where(and(eq(medications.id, id), eq(medications.userId, userId))).returning({ id: medications.id })
+    if (!owned) throw new Error('Medication not found.')
+    await tx.delete(medicationLogs).where(and(eq(medicationLogs.medicationId, id), eq(medicationLogs.userId, userId)))
+    await tx.delete(notifications).where(and(eq(notifications.medicationId, id), eq(notifications.userId, userId)))
+    await tx.delete(medicationSchedules).where(and(eq(medicationSchedules.medicationId, id), eq(medicationSchedules.userId, userId)))
+    return tx.delete(medicationReminders).where(and(eq(medicationReminders.medicationId, id), eq(medicationReminders.userId, userId)))
+      .returning({ qstashMessageId: medicationReminders.qstashMessageId })
+  })
+  after(() => cancelQueuedMessages(cancelled))
   revalidatePath('/', 'layout')
 }
