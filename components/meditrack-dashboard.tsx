@@ -86,7 +86,12 @@ export default function MediTrackDashboard({ medications, doses, user, initialTi
   }, [toast])
 
   useEffect(() => {
-    getNotificationState().then((state) => {
+    const endpoint = async () => {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) return undefined
+      const registration = await navigator.serviceWorker.getRegistration()
+      return (await registration?.pushManager.getSubscription())?.endpoint
+    }
+    endpoint().catch(() => undefined).then((value) => getNotificationState(value)).then((state) => {
       setNotifications(state.notifications)
       setNotificationStatus('ready')
       const timezone = initialTimezone === null && state.settings.timezone === 'UTC'
@@ -158,7 +163,7 @@ export default function MediTrackDashboard({ medications, doses, user, initialTi
       return
     }
     const registration = await navigator.serviceWorker.ready
-    const subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(state.publicVapidKey) })
+    const subscription = await registration.pushManager.getSubscription() ?? await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(state.publicVapidKey) })
     await savePushSubscription(subscription.toJSON() as { endpoint: string; keys?: { p256dh?: string; auth?: string } })
     await updateNotificationSettings({ ...settings, browserNotifications: true })
     setSettings((current) => ({ ...current, browserNotifications: true }))
