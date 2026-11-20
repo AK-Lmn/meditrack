@@ -10,10 +10,11 @@ import { dismissNotification, getNotificationState, markNotificationRead, savePu
 import { ThemeSelect } from '@/components/theme-provider'
 import { authClient } from '@/lib/auth-client'
 import { calculateStreak } from '@/lib/adherence'
+import type { ScheduledOccurrence } from '@/lib/scheduler'
 import { formatDateForTimeZone, getGreetingForTimeZone, type TimeOfDayGreeting } from '@/lib/timezone-display'
 import { Activity, Bell, CalendarDays, Check, CheckCircle2, ChevronDown, Clock3, Download, FileText, LayoutDashboard, LogOut, Menu, MoreHorizontal, Pill, Plus, Search, Settings, ShieldCheck, TrendingUp, Undo2, X } from 'lucide-react'
 
-type Medication = { id: number; name: string; dosage: string; frequency: string; instructions: string | null; color: string; active: boolean }
+type Medication = { id: number; name: string; dosage: string; frequency: string; instructions: string | null; color: string; active: boolean; todayOccurrences: ScheduledOccurrence[] }
 type Dose = { medicationId: number; status: string; scheduledAt: Date | string }
 type NotificationRow = { id: number; medicationId: number | null; title: string; message: string; read: boolean; createdAt: Date | string }
 type NotificationSettings = { medicationReminders: boolean; browserNotifications: boolean; timezone: string; reminderMinutesBefore: number }
@@ -235,7 +236,7 @@ function BottomNav({ activeLabel, onMore }: { activeLabel: string; onMore: () =>
 function DashboardView(props: { activeLabel: string; medications: Medication[]; filtered: Medication[]; takenIds: Set<number>; todayTaken: number; streak?: number; pendingDoseId: number | null; query: string; setQuery: (value: string) => void; setShowAdd: (value: boolean) => void; toggleDose: (id: number) => void; archive: (medicine: Medication) => void }) {
   const { activeLabel, medications, filtered, takenIds, todayTaken, streak = 0, pendingDoseId, query, setQuery, setShowAdd, toggleDose, archive } = props
   if (activeLabel === 'Medicines') return <MedicinesView medications={medications} filtered={filtered} takenIds={takenIds} pendingDoseId={pendingDoseId} query={query} setQuery={setQuery} setShowAdd={setShowAdd} toggleDose={toggleDose} archive={archive} />
-  if (activeLabel === 'Schedule') return <Placeholder title="Schedule" text="Scheduled doses are generated from medication times. Due reminders appear when their scheduled time arrives." />
+  if (activeLabel === 'Schedule') return <ScheduleView medications={medications} />
   if (activeLabel === 'History') return <HistoryView doses={medications.map((medicine) => ({ medicine, taken: takenIds.has(medicine.id) }))} />
   if (activeLabel === 'Analytics') return <Placeholder title="Analytics" text="Adherence analytics will grow as more logged dose history is available." />
   // Default: Dashboard home
@@ -310,7 +311,7 @@ function MedicationList({ filtered, takenIds, pendingDoseId, setShowAdd, toggleD
                 </div>
                 <div className="mt-1 text-sm font-semibold text-[#536479] dark:text-[#d4e2e8]">{medicine.dosage}</div>
                 <div className="mt-1 flex items-center gap-1.5 text-xs text-[#8491a3] dark:text-[#a8c4d3]">
-                  <Clock3 size={13} aria-hidden="true" /> <span>{medicine.frequency} · {isTaken ? 'Completed today' : 'Scheduled today'}</span>
+                  <Clock3 size={13} aria-hidden="true" /> <span>{medicine.frequency}{medicine.todayOccurrences.length > 0 && ` · Due ${medicine.todayOccurrences.map((dose) => dose.timeOfDay).join(', ')}`} · {isTaken ? 'Completed today' : 'Scheduled today'}</span>
                 </div>
               </div>
               <button
@@ -345,6 +346,21 @@ function MedicationList({ filtered, takenIds, pendingDoseId, setShowAdd, toggleD
 }
 
 /** Dedicated full-screen medicines management view (route: /medicines). */
+function ScheduleView({ medications }: { medications: Medication[] }) {
+  const scheduledDoses = medications.flatMap((medicine) => medicine.todayOccurrences.map((dose) => ({ medicine, dose })))
+    .sort((a, b) => a.dose.scheduledUtc.getTime() - b.dose.scheduledUtc.getTime())
+
+  return <section className="rounded-2xl border border-[#e5eaf1] bg-white p-5 dark:border-[#254258] dark:bg-[#132b3b]">
+    <h2 className="text-base font-bold">Today&apos;s doses</h2>
+    {scheduledDoses.length ? <ul className="mt-4 space-y-2">
+      {scheduledDoses.map(({ medicine, dose }) => <li key={dose.occurrenceKey} className="flex items-center justify-between gap-3 rounded-lg border border-[#edf0f4] p-3 text-sm dark:border-[#315069]">
+        <span className="min-w-0 break-words">{medicine.name} · {medicine.dosage}</span>
+        <time className="shrink-0 font-semibold" dateTime={dose.scheduledUtc.toISOString()}>{dose.timeOfDay}</time>
+      </li>)}
+    </ul> : <p className="mt-4 text-sm">No doses scheduled today.</p>}
+  </section>
+}
+
 function MedicinesView({ medications, filtered, takenIds, pendingDoseId, query, setQuery, setShowAdd, toggleDose, archive }: { medications: Medication[]; filtered: Medication[]; takenIds: Set<number>; pendingDoseId: number | null; query: string; setQuery: (value: string) => void; setShowAdd: (value: boolean) => void; toggleDose: (id: number) => void; archive: (medicine: Medication) => void }) {
   const todayTaken = useMemo(() => medications.filter((m) => takenIds.has(m.id)).length, [medications, takenIds])
   return (
