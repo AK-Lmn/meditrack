@@ -1,4 +1,4 @@
-import { Analytics } from '@vercel/analytics/next'
+import { AppAnalytics } from '@/components/app-analytics'
 import type { Metadata, Viewport } from 'next'
 import { ThemeProvider } from '@/components/theme-provider'
 import './globals.css'
@@ -65,7 +65,7 @@ export default function RootLayout({
       </head>
       <body className="antialiased">
         <ThemeProvider>{children}</ThemeProvider>
-        {process.env.NODE_ENV === 'production' && <Analytics />}
+        {process.env.NODE_ENV === 'production' && <AppAnalytics />}
       </body>
     </html>
   )
