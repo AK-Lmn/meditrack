@@ -17,5 +17,5 @@ export async function DashboardPage() {
   ])
   const timezone = settingsRow?.timezone ?? null
   const now = new Date()
-  return <MediTrackDashboard medications={medicationRows} doses={doseRows} user={{ name: session.user.name, email: session.user.email }} initialTimezone={timezone} initialGreeting={getGreetingForTimeZone(timezone, now)} initialLocalDate={formatDateForTimeZone(timezone, now)} />
+  return <MediTrackDashboard key={session.user.id} medications={medicationRows} doses={doseRows} user={{ name: session.user.name, email: session.user.email }} initialTimezone={timezone} initialGreeting={getGreetingForTimeZone(timezone, now)} initialLocalDate={formatDateForTimeZone(timezone, now)} />
 }

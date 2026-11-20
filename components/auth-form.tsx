@@ -1,11 +1,10 @@
 'use client'
 
 import { FormEvent, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { enterDashboard } from '@/app/actions/auth-navigation'
 import { authClient } from '@/lib/auth-client'
 
 export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
-  const router = useRouter()
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -14,9 +13,8 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
     const result = mode === 'sign-up'
       ? await authClient.signUp.email({ name: String(data.get('name')), email: String(data.get('email')), password: String(data.get('password')) })
       : await authClient.signIn.email({ email: String(data.get('email')), password: String(data.get('password')) })
-    setLoading(false)
-    if (result.error) { setError('We could not complete that request. Check your details and try again.'); return }
-    router.push('/'); router.refresh()
+    if (result.error) { setLoading(false); setError('We could not complete that request. Check your details and try again.'); return }
+    await enterDashboard()
   }
   return <form onSubmit={submit} className="space-y-4">
     {mode === 'sign-up' && <label className="block text-sm font-semibold text-[#526277] dark:text-[#d4e2e8]">Name<input name="name" autoComplete="name" required className="app-focus mt-2 h-11 w-full rounded-lg border border-[#dfe6ec] bg-white px-3 outline-none dark:border-[#315069] dark:bg-[#173247] dark:text-[#f5eedd]" /></label>}
