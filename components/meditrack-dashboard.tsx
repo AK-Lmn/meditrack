@@ -10,7 +10,8 @@ import { dismissNotification, getNotificationState, markNotificationRead, refres
 import { ThemeSelect } from '@/components/theme-provider'
 import { authClient } from '@/lib/auth-client'
 import { calculateStreak } from '@/lib/adherence'
-import { formatLocalDate, getDoseDisplayStatus, MISSED_DOSE_WINDOW_MS, type DoseDisplayStatus, type ScheduledOccurrence } from '@/lib/scheduler'
+import { getDailyDoseState } from '@/lib/daily-dose-state'
+import { addDaysToDateString, formatLocalDate, getDoseDisplayStatus, localDatetimeToUtc, MISSED_DOSE_WINDOW_MS, type DoseDisplayStatus, type ScheduledOccurrence } from '@/lib/scheduler'
 import { formatDateForTimeZone, getGreetingForTimeZone, type TimeOfDayGreeting } from '@/lib/timezone-display'
 import { Activity, Bell, CalendarDays, Check, CheckCircle2, ChevronDown, Clock3, Download, FileText, LayoutDashboard, LogOut, Menu, MoreHorizontal, Pill, Plus, Search, Settings, ShieldCheck, TrendingUp, Undo2, X } from 'lucide-react'
 
@@ -52,13 +53,35 @@ export default function MediTrackDashboard({ medications: initialMedications, do
 
   const [clock, setClock] = useState(initialNow)
   const now = new Date(Math.max(clock, initialNow))
+  const timezone = initialTimezone ?? 'UTC'
+  const today = formatLocalDate(now, timezone)
+  const dailyStates = new Map(initialMedications.map((medicine) => [
+    medicine.id,
+    getDailyDoseState(medicine.todayOccurrences.filter((dose) => dose.localDate === today), doses.filter((dose) => dose.medicationId === medicine.id), today, timezone),
+  ]))
   const medications = initialMedications.map((medicine) => {
-    const statuses = medicine.todayOccurrences.map((dose) => getDoseDisplayStatus(dose.scheduledUtc, now, findDoseLog(doses, medicine.id, dose)?.status))
+    const todayOccurrences = medicine.todayOccurrences.filter((dose) => dose.localDate === today)
+    const statuses = todayOccurrences.map((dose) => getDoseDisplayStatus(dose.scheduledUtc, now, findDoseLog(doses, medicine.id, dose)?.status))
     const doseStatus = statuses.find((status) => status === 'missed')
       ?? statuses.find((status) => status === 'overdue')
       ?? statuses[0]
-    return { ...medicine, doseStatus }
+    return { ...medicine, todayOccurrences, doseStatus }
   })
+  const takenIds = new Set([...dailyStates].filter(([, state]) => state.complete).map(([id]) => id))
+  const filtered = medications.filter((medicine) => medicine.name.toLowerCase().includes(query.toLowerCase()))
+  const initials = user.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()
+  const todayTaken = [...dailyStates.values()].reduce((total, state) => total + state.takenCount, 0)
+  const unread = notifications.filter((item) => !item.read).length
+  const streakRecords = doses.filter((dose) => dose.status !== 'scheduled'
+    || !dailyStates.has(dose.medicationId) || formatLocalDate(new Date(dose.scheduledAt), timezone) !== today)
+  for (const [id, state] of dailyStates) {
+    for (const dose of state.pending) {
+      const status = getDoseDisplayStatus(dose.scheduledUtc, now, findDoseLog(doses, id, dose)?.status)
+      if (status === 'skipped' || status === 'missed' && findDoseLog(doses, id, dose)?.status === 'missed') continue
+      streakRecords.push({ medicationId: id, scheduledAt: dose.scheduledUtc, status: status === 'missed' ? 'missed' : 'scheduled' })
+    }
+  }
+  const streakMetrics = calculateStreak(streakRecords, now, timezone)
 
   useEffect(() => {
     const interval = window.setInterval(() => setClock(Date.now()), 15_000)
@@ -66,26 +89,17 @@ export default function MediTrackDashboard({ medications: initialMedications, do
   }, [])
 
   useEffect(() => {
-    const nextMissed = initialMedications.flatMap((medicine) => medicine.todayOccurrences)
+    const serverDay = formatLocalDate(new Date(initialNow), timezone)
+    const midnight = localDatetimeToUtc(addDaysToDateString(serverDay, 1), '00:00', timezone).getTime()
+    const deadlines = initialMedications.flatMap((medicine) => medicine.todayOccurrences)
       .map((dose) => dose.scheduledUtc.getTime() + MISSED_DOSE_WINDOW_MS)
       .filter((deadline) => deadline > initialNow)
-    if (!nextMissed.length) return
-    const timeout = window.setTimeout(() => router.refresh(), Math.max(0, Math.min(...nextMissed) - Date.now()))
+    const timeout = window.setTimeout(() => {
+      setClock(Date.now())
+      router.refresh()
+    }, Math.max(0, Math.min(midnight, ...deadlines) - Date.now()))
     return () => window.clearTimeout(timeout)
-  }, [initialMedications, initialNow, router])
-
-  const takenIds = useMemo(() => new Set(doses.filter((dose) => dose.status === 'taken').map((dose) => dose.medicationId)), [doses])
-  const filtered = useMemo(() => medications.filter((m) => m.name.toLowerCase().includes(query.toLowerCase())), [medications, query])
-  const initials = user.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()
-  const today = formatLocalDate(new Date(), initialTimezone ?? 'UTC')
-  const todaysTakenDoses = doses.filter((dose) => dose.status === 'taken' && formatLocalDate(new Date(dose.scheduledAt), initialTimezone ?? 'UTC') === today)
-  const todayTaken = medications.reduce((count, medicine) => {
-    const taken = todaysTakenDoses.filter((dose) => dose.medicationId === medicine.id)
-    const matched = medicine.todayOccurrences.filter((occurrence) => taken.some((dose) => new Date(dose.scheduledAt).getTime() === occurrence.scheduledUtc.getTime())).length
-    return count + Math.max(matched, Number(taken.length > 0))
-  }, 0)
-  const unread = notifications.filter((item) => !item.read).length
-  const streakMetrics = useMemo(() => calculateStreak(doses, new Date(), settings.timezone || 'UTC'), [doses, settings.timezone])
+  }, [initialMedications, initialNow, router, timezone])
 
   const [vapidConfigured, setVapidConfigured] = useState(false)
   const [hasActiveSubscription, setHasActiveSubscription] = useState(false)
@@ -176,8 +190,7 @@ export default function MediTrackDashboard({ medications: initialMedications, do
     const wasTaken = takenIds.has(id)
     setPendingDoseId(id)
     try {
-      const existing = wasTaken ? todaysTakenDoses.find((dose) => dose.medicationId === id) : undefined
-      const scheduledAt = existing ? new Date(existing.scheduledAt) : medicine?.todayOccurrences.length === 1 ? medicine.todayOccurrences[0].scheduledUtc : new Date()
+      const scheduledAt = dailyStates.get(id)?.target ?? new Date()
       if (wasTaken) await undoDose(id, scheduledAt)
       else await takeDose(id, scheduledAt)
       setToast({ id: Date.now(), kind: 'success', text: wasTaken ? `${medicine?.name ?? 'Medication'} returned to scheduled.` : `${medicine?.name ?? 'Medication'} marked as taken.`, undoMedicationId: wasTaken ? undefined : id, undoScheduledAt: scheduledAt })
@@ -378,7 +391,7 @@ function MedicationList({ filtered, takenIds, pendingDoseId, setShowAdd, toggleD
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="truncate text-sm font-bold sm:text-[15px]">{medicine.name}</h3>
-                  <StatusBadge status={medicine.doseStatus === 'missed' || medicine.doseStatus === 'overdue' ? medicine.doseStatus : isTaken ? 'taken' : medicine.frequency.toLowerCase().includes('needed') ? 'as-needed' : 'upcoming'} />
+                  <StatusBadge status={isTaken ? 'taken' : medicine.doseStatus === 'missed' || medicine.doseStatus === 'overdue' ? medicine.doseStatus : medicine.frequency.toLowerCase().includes('needed') ? 'as-needed' : 'upcoming'} />
                 </div>
                 <div className="mt-1 text-sm font-semibold text-[#536479] dark:text-[#d4e2e8]">{medicine.dosage}</div>
                 <div className="mt-1 flex items-center gap-1.5 text-xs text-[#8491a3] dark:text-[#a8c4d3]">
