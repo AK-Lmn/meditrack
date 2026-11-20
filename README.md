@@ -168,6 +168,8 @@ NEXT_PUBLIC_VAPID_PUBLIC_KEY=your-vapid-public-key
 VAPID_PRIVATE_KEY=your-vapid-private-key
 ```
 
+Set `RESEND_API_KEY` and `MEDITRACK_AUTH_EMAIL_FROM` (a verified Resend sender) to enable email password recovery. Set `NEXT_PUBLIC_MEDITRACK_TERMS_URL` and `NEXT_PUBLIC_MEDITRACK_PRIVACY_URL` to the published policy pages to show those links on the authentication forms.
+
 ### 3. Run Development Server
 ```bash
 pnpm dev
