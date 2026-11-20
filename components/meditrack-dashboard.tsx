@@ -10,10 +10,11 @@ import { dismissNotification, getNotificationState, markNotificationRead, savePu
 import { ThemeSelect } from '@/components/theme-provider'
 import { authClient } from '@/lib/auth-client'
 import { calculateStreak } from '@/lib/adherence'
+import { formatLocalDate, type ScheduledOccurrence } from '@/lib/scheduler'
 import { formatDateForTimeZone, getGreetingForTimeZone, type TimeOfDayGreeting } from '@/lib/timezone-display'
 import { Activity, Bell, CalendarDays, Check, CheckCircle2, ChevronDown, Clock3, Download, FileText, LayoutDashboard, LogOut, Menu, MoreHorizontal, Pill, Plus, Search, Settings, ShieldCheck, TrendingUp, Undo2, X } from 'lucide-react'
 
-type Medication = { id: number; name: string; dosage: string; frequency: string; instructions: string | null; color: string; active: boolean }
+type Medication = { id: number; name: string; dosage: string; frequency: string; instructions: string | null; color: string; active: boolean; todayOccurrences: ScheduledOccurrence[] }
 type Dose = { medicationId: number; status: string; scheduledAt: Date | string }
 type NotificationRow = { id: number; medicationId: number | null; title: string; message: string; read: boolean; createdAt: Date | string }
 type NotificationSettings = { medicationReminders: boolean; browserNotifications: boolean; timezone: string; reminderMinutesBefore: number }
@@ -52,7 +53,13 @@ export default function MediTrackDashboard({ medications, doses, user, initialTi
   const takenIds = useMemo(() => new Set(doses.filter((dose) => dose.status === 'taken').map((dose) => dose.medicationId)), [doses])
   const filtered = useMemo(() => medications.filter((m) => m.name.toLowerCase().includes(query.toLowerCase())), [medications, query])
   const initials = user.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()
-  const todayTaken = takenIds.size
+  const today = formatLocalDate(new Date(), initialTimezone ?? 'UTC')
+  const todaysTakenDoses = doses.filter((dose) => dose.status === 'taken' && formatLocalDate(new Date(dose.scheduledAt), initialTimezone ?? 'UTC') === today)
+  const todayTaken = medications.reduce((count, medicine) => {
+    const taken = todaysTakenDoses.filter((dose) => dose.medicationId === medicine.id)
+    const matched = medicine.todayOccurrences.filter((occurrence) => taken.some((dose) => new Date(dose.scheduledAt).getTime() === occurrence.scheduledUtc.getTime())).length
+    return count + Math.max(matched, Number(taken.length > 0))
+  }, 0)
   const unread = notifications.filter((item) => !item.read).length
   const streakMetrics = useMemo(() => calculateStreak(doses, new Date(), settings.timezone || 'UTC'), [doses, settings.timezone])
 
@@ -182,7 +189,7 @@ export default function MediTrackDashboard({ medications, doses, user, initialTi
         <div className="flex items-center gap-2"><InstallButton installEvent={installEvent} onDone={() => setInstallEvent(null)} /><div className="hidden sm:block"><ThemeSelect compact /></div><Dialog.Root open={notificationOpen} onOpenChange={setNotificationOpen}><Dialog.Trigger className="app-focus relative flex h-11 w-11 items-center justify-center rounded-lg text-[#7d8a9d] hover:bg-[#f3f6f8] dark:text-[#bdd5df] dark:hover:bg-[#173247]" aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'}><Bell size={19} aria-hidden="true" />{unread > 0 && <span aria-hidden="true" className="absolute right-2 top-2 min-w-4 rounded-full bg-[#bd6570] px-1 text-[10px] font-bold text-white">{unread}</span>}</Dialog.Trigger><NotificationPanel status={notificationStatus} notifications={notifications} onRead={(id) => startTransition(async () => { await markNotificationRead(id); setNotifications((items) => items.map((item) => item.id === id ? { ...item, read: true } : item)) })} onDismiss={(id) => startTransition(async () => { await dismissNotification(id); setNotifications((items) => items.filter((item) => item.id !== id)) })} onTake={(id, medicationId) => medicationId && startTransition(async () => { await takeDose(medicationId); await markNotificationRead(id); setNotifications((items) => items.map((item) => item.id === id ? { ...item, read: true } : item)); router.refresh() })} /></Dialog.Root><div className="hidden h-7 w-px bg-[#e8ecf1] sm:block dark:bg-[#315069]" /><div className="hidden h-8 w-8 items-center justify-center rounded-full bg-[#dbe9ee] text-xs font-bold text-[#256b79] sm:flex dark:bg-[#173247] dark:text-[#f5eedd]">{initials}</div><ChevronDown size={14} className="hidden text-[#8c98a9] sm:block" /></div>
       </header>
       <div className="mx-auto max-w-[1380px] p-4 pb-24 sm:p-8 lg:pb-8">
-        {activeLabel === 'Settings' ? <SettingsView settings={settings} permissionMessage={permissionMessage} vapidConfigured={vapidConfigured} hasActiveSubscription={hasActiveSubscription} onToggleReminders={(enabled) => startTransition(async () => { await updateNotificationSettings({ ...settings, medicationReminders: enabled }); setSettings((current) => ({ ...current, medicationReminders: enabled })) })} onToggleTimezone={(tz) => startTransition(async () => { await updateNotificationSettings({ ...settings, timezone: tz }); setSettings((current) => ({ ...current, timezone: tz })) })} onEnableBrowser={enableBrowserNotifications} /> : <DashboardView activeLabel={activeLabel} medications={medications} filtered={filtered} takenIds={takenIds} todayTaken={todayTaken} streak={streakMetrics.currentStreak} pendingDoseId={pendingDoseId} query={query} setQuery={setQuery} setShowAdd={setShowAdd} toggleDose={toggleDose} archive={(medicine) => startTransition(async () => { try { await archiveMedication(medicine.id); setToast({ id: Date.now(), kind: 'success', text: `${medicine.name} archived.` }); router.refresh() } catch { setToast({ id: Date.now(), kind: 'error', text: `Unable to archive ${medicine.name}. Please try again.` }) } })} />}
+        {activeLabel === 'Settings' ? <SettingsView settings={settings} permissionMessage={permissionMessage} vapidConfigured={vapidConfigured} hasActiveSubscription={hasActiveSubscription} onToggleReminders={(enabled) => startTransition(async () => { await updateNotificationSettings({ ...settings, medicationReminders: enabled }); setSettings((current) => ({ ...current, medicationReminders: enabled })) })} onToggleTimezone={(tz) => startTransition(async () => { await updateNotificationSettings({ ...settings, timezone: tz }); setSettings((current) => ({ ...current, timezone: tz })) })} onEnableBrowser={enableBrowserNotifications} /> : <DashboardView activeLabel={activeLabel} medications={medications} doses={doses} filtered={filtered} takenIds={takenIds} todayTaken={todayTaken} streak={streakMetrics.currentStreak} pendingDoseId={pendingDoseId} query={query} setQuery={setQuery} setShowAdd={setShowAdd} toggleDose={toggleDose} archive={(medicine) => startTransition(async () => { try { await archiveMedication(medicine.id); setToast({ id: Date.now(), kind: 'success', text: `${medicine.name} archived.` }); router.refresh() } catch { setToast({ id: Date.now(), kind: 'error', text: `Unable to archive ${medicine.name}. Please try again.` }) } })} />}
       </div>
     </main>
     <BottomNav activeLabel={activeLabel} onMore={() => setMobileOpen(true)} />
@@ -232,17 +239,18 @@ function BottomNav({ activeLabel, onMore }: { activeLabel: string; onMore: () =>
   })}<button type="button" onClick={onMore} aria-label="Open more navigation options" className={`app-focus flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg text-[10px] font-bold ${moreActive ? 'text-[#146b7a] dark:text-[#84B3CE]' : 'text-[#718096] dark:text-[#b9d1df]'}`}><Menu size={19} aria-hidden="true" /><span>More</span></button></nav>
 }
 
-function DashboardView(props: { activeLabel: string; medications: Medication[]; filtered: Medication[]; takenIds: Set<number>; todayTaken: number; streak?: number; pendingDoseId: number | null; query: string; setQuery: (value: string) => void; setShowAdd: (value: boolean) => void; toggleDose: (id: number) => void; archive: (medicine: Medication) => void }) {
+function DashboardView(props: { activeLabel: string; medications: Medication[]; doses: Dose[]; filtered: Medication[]; takenIds: Set<number>; todayTaken: number; streak?: number; pendingDoseId: number | null; query: string; setQuery: (value: string) => void; setShowAdd: (value: boolean) => void; toggleDose: (id: number) => void; archive: (medicine: Medication) => void }) {
   const { activeLabel, medications, filtered, takenIds, todayTaken, streak = 0, pendingDoseId, query, setQuery, setShowAdd, toggleDose, archive } = props
+  const scheduledDoseCount = medications.reduce((count, medicine) => count + Math.max(1, medicine.todayOccurrences.length), 0)
   if (activeLabel === 'Medicines') return <MedicinesView medications={medications} filtered={filtered} takenIds={takenIds} pendingDoseId={pendingDoseId} query={query} setQuery={setQuery} setShowAdd={setShowAdd} toggleDose={toggleDose} archive={archive} />
-  if (activeLabel === 'Schedule') return <Placeholder title="Schedule" text="Scheduled doses are generated from medication times. Due reminders appear when their scheduled time arrives." />
+  if (activeLabel === 'Schedule') return <ScheduleView medications={medications} doses={props.doses} />
   if (activeLabel === 'History') return <HistoryView doses={medications.map((medicine) => ({ medicine, taken: takenIds.has(medicine.id) }))} />
   if (activeLabel === 'Analytics') return <Placeholder title="Analytics" text="Adherence analytics will grow as more logged dose history is available." />
   // Default: Dashboard home
   return (
     <>
       <section className="grid gap-3 sm:gap-4 grid-cols-1 min-[480px]:grid-cols-3">
-        <StatCard icon={<Check size={18} />} tone="green" label="Today's adherence" value={`${todayTaken} / ${medications.length}`} note={medications.length ? `${Math.round((todayTaken / medications.length) * 100)}% completed` : 'No medications yet'} />
+        <StatCard icon={<Check size={18} />} tone="green" label="Today's adherence" value={`${todayTaken} / ${scheduledDoseCount}`} note={medications.length ? `${Math.round((todayTaken / scheduledDoseCount) * 100)}% completed` : 'No medications yet'} />
         <StatCard icon={<Pill size={18} />} tone="blue" label="Active medications" value={String(medications.length)} note={medications.length ? 'Care plan is up to date' : 'Add your first medication'} />
         <StatCard icon={<Activity size={18} />} tone="orange" label="Current streak" value={streak > 0 ? `${streak} day${streak === 1 ? '' : 's'}` : '-'} note={streak > 0 ? 'Streak active' : 'Log doses to start a streak'} />
       </section>
@@ -257,10 +265,10 @@ function DashboardView(props: { activeLabel: string; medications: Medication[]; 
             <TrendingUp size={18} className="text-[#1e7b8c] dark:text-[#84B3CE]" />
           </div>
           <div className="mt-8 rounded-xl bg-[#f3f8f8] p-5 dark:bg-[#173247]">
-            <div className="text-3xl font-bold text-[#1d7c88] dark:text-[#84B3CE]">{medications.length ? `${Math.round((todayTaken / medications.length) * 100)}%` : '-'}</div>
+            <div className="text-3xl font-bold text-[#1d7c88] dark:text-[#84B3CE]">{medications.length ? `${Math.round((todayTaken / scheduledDoseCount) * 100)}%` : '-'}</div>
             <p className="mt-1 text-xs text-[#718a95] dark:text-[#b9d1df]">Today&apos;s completion</p>
             <div className="mt-4 h-2 overflow-hidden rounded-full bg-white dark:bg-[#0d2230]">
-              <div className="h-full rounded-full bg-[#75c6c0]" style={{ width: `${medications.length ? (todayTaken / medications.length) * 100 : 0}%` }} />
+              <div className="h-full rounded-full bg-[#75c6c0]" style={{ width: `${medications.length ? (todayTaken / scheduledDoseCount) * 100 : 0}%` }} />
             </div>
           </div>
         </section>
@@ -310,7 +318,7 @@ function MedicationList({ filtered, takenIds, pendingDoseId, setShowAdd, toggleD
                 </div>
                 <div className="mt-1 text-sm font-semibold text-[#536479] dark:text-[#d4e2e8]">{medicine.dosage}</div>
                 <div className="mt-1 flex items-center gap-1.5 text-xs text-[#8491a3] dark:text-[#a8c4d3]">
-                  <Clock3 size={13} aria-hidden="true" /> <span>{medicine.frequency} · {isTaken ? 'Completed today' : 'Scheduled today'}</span>
+                  <Clock3 size={13} aria-hidden="true" /> <span>{medicine.frequency}{medicine.todayOccurrences.length > 0 && ` · Due ${medicine.todayOccurrences.map((dose) => dose.timeOfDay).join(', ')}`} · {isTaken ? 'Completed today' : 'Scheduled today'}</span>
                 </div>
               </div>
               <button
@@ -345,6 +353,35 @@ function MedicationList({ filtered, takenIds, pendingDoseId, setShowAdd, toggleD
 }
 
 /** Dedicated full-screen medicines management view (route: /medicines). */
+function ScheduleView({ medications, doses }: { medications: Medication[]; doses: Dose[] }) {
+  const [pending, startTransition] = useTransition()
+  const [error, setError] = useState('')
+  const scheduledDoses = medications.flatMap((medicine) => medicine.todayOccurrences.map((dose) => ({ medicine, dose })))
+    .sort((a, b) => a.dose.scheduledUtc.getTime() - b.dose.scheduledUtc.getTime())
+
+  return <section className="rounded-2xl border border-[#e5eaf1] bg-white p-5 dark:border-[#254258] dark:bg-[#132b3b]">
+    <h2 className="text-base font-bold">Today&apos;s doses</h2>
+    {scheduledDoses.length ? <ul className="mt-4 space-y-2">
+      {scheduledDoses.map(({ medicine, dose }) => {
+        const taken = doses.some((log) => log.medicationId === medicine.id && log.status === 'taken' && new Date(log.scheduledAt).getTime() === dose.scheduledUtc.getTime())
+        return <li key={dose.occurrenceKey} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#edf0f4] p-3 text-sm dark:border-[#315069]">
+          <span className="min-w-0 break-words">{medicine.name} · {medicine.dosage}</span>
+          <time className="shrink-0 font-semibold" dateTime={dose.scheduledUtc.toISOString()}>{dose.timeOfDay}</time>
+          <button type="button" disabled={pending} className="app-focus min-h-11 rounded-lg px-2 font-semibold" onClick={() => startTransition(async () => {
+            setError('')
+            try {
+              await (taken ? undoDose : takeDose)(medicine.id, dose.scheduledUtc)
+            } catch {
+              setError('Unable to update the dose. Please try again.')
+            }
+          })}>{taken ? 'Undo' : 'Mark taken'}</button>
+        </li>
+      })}
+    </ul> : <p className="mt-4 text-sm">No doses scheduled today.</p>}
+    {error && <p role="alert" className="mt-4 text-sm">{error}</p>}
+  </section>
+}
+
 function MedicinesView({ medications, filtered, takenIds, pendingDoseId, query, setQuery, setShowAdd, toggleDose, archive }: { medications: Medication[]; filtered: Medication[]; takenIds: Set<number>; pendingDoseId: number | null; query: string; setQuery: (value: string) => void; setShowAdd: (value: boolean) => void; toggleDose: (id: number) => void; archive: (medicine: Medication) => void }) {
   const todayTaken = useMemo(() => medications.filter((m) => takenIds.has(m.id)).length, [medications, takenIds])
   return (
@@ -537,6 +574,7 @@ function AddMedication({ open, onClose, onSaved }: { open: boolean; onClose: () 
   const [name, setName] = useState('')
   const [dosage, setDosage] = useState('')
   const [frequency, setFrequency] = useState('Once daily')
+  const [secondTimeOfDay, setSecondTimeOfDay] = useState('20:00')
   const [timeOfDay, setTimeOfDay] = useState('08:00')
   const [error, setError] = useState('')
   const [pending, startTransition] = useTransition()
@@ -545,11 +583,11 @@ function AddMedication({ open, onClose, onSaved }: { open: boolean; onClose: () 
       <Dialog.Backdrop className="fixed inset-0 z-[60] bg-[#18243a]/45 backdrop-blur-sm" />
       <Dialog.Viewport className="fixed inset-0 z-[61] flex items-end justify-center sm:items-center sm:p-4">
         <Dialog.Popup initialFocus className="flex max-h-[100dvh] min-h-[100dvh] w-full max-w-md flex-col bg-white shadow-xl outline-none dark:bg-[#132b3b] sm:min-h-0 sm:max-h-[min(90dvh,720px)] sm:rounded-2xl">
-          <form onSubmit={(event) => { event.preventDefault(); startTransition(async () => { try { await createMedication({ name, dosage, frequency, timeOfDay }); onSaved() } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to save medication.') } }) }} className="flex min-h-0 flex-1 flex-col">
+          <form onSubmit={(event) => { event.preventDefault(); startTransition(async () => { try { await createMedication({ name, dosage, frequency, timeOfDay, secondTimeOfDay }); onSaved() } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to save medication.') } }) }} className="flex min-h-0 flex-1 flex-col">
             <div className="flex items-start justify-between border-b border-[#edf0f4] px-5 pb-4 pt-[max(1.25rem,env(safe-area-inset-top))] dark:border-[#315069] sm:p-6 sm:pb-4"><div><Dialog.Title className="text-lg font-bold">Add medication</Dialog.Title><Dialog.Description className="mt-1 text-xs text-[#8794a5] dark:text-[#a8c4d3]">Keep your care plan up to date.</Dialog.Description></div><Dialog.Close className="app-focus flex h-11 w-11 items-center justify-center rounded-lg text-[#95a0af] hover:bg-[#f3f6f8] dark:hover:bg-[#173247]" aria-label="Close add medication dialog"><X size={18} aria-hidden="true" /></Dialog.Close></div>
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6">
               {error && <p role="alert" className="mb-4 rounded-lg bg-[#fff2f2] px-3 py-2 text-xs font-semibold text-[#a84f5a] dark:bg-[#3a1f2a] dark:text-[#f3b3bb]">{error}</p>}
-              <div className="space-y-4"><label className="block text-xs font-bold text-[#5f6e82] dark:text-[#b9d1df]">Medication name<input autoComplete="off" required value={name} onChange={(e) => setName(e.target.value)} className="app-focus mt-2 h-11 w-full rounded-lg border border-[#dfe6ec] bg-white px-3 text-sm outline-none dark:border-[#315069] dark:bg-[#173247]" placeholder="e.g. Lisinopril" /></label><div className="grid gap-3 sm:grid-cols-2"><label className="block text-xs font-bold text-[#5f6e82] dark:text-[#b9d1df]">Dosage<input required value={dosage} onChange={(e) => setDosage(e.target.value)} className="app-focus mt-2 h-11 w-full rounded-lg border border-[#dfe6ec] bg-white px-3 text-sm outline-none dark:border-[#315069] dark:bg-[#173247]" placeholder="10 mg" /></label><label className="block text-xs font-bold text-[#5f6e82] dark:text-[#b9d1df]">Due time<input type="time" required value={timeOfDay} onChange={(e) => setTimeOfDay(e.target.value)} className="app-focus mt-2 h-11 w-full rounded-lg border border-[#dfe6ec] bg-white px-3 text-sm outline-none dark:border-[#315069] dark:bg-[#173247]" /></label></div><label className="block text-xs font-bold text-[#5f6e82] dark:text-[#b9d1df]">Frequency<select value={frequency} onChange={(e) => setFrequency(e.target.value)} className="app-focus mt-2 h-11 w-full rounded-lg border border-[#dfe6ec] bg-white px-3 text-sm outline-none dark:border-[#315069] dark:bg-[#173247]"><option>Once daily</option><option>Twice daily</option><option>As needed</option></select></label></div>
+              <div className="space-y-4"><label className="block text-xs font-bold text-[#5f6e82] dark:text-[#b9d1df]">Medication name<input autoComplete="off" required value={name} onChange={(e) => setName(e.target.value)} className="app-focus mt-2 h-11 w-full rounded-lg border border-[#dfe6ec] bg-white px-3 text-sm outline-none dark:border-[#315069] dark:bg-[#173247]" placeholder="e.g. Lisinopril" /></label><div className="grid gap-3 sm:grid-cols-2"><label className="block text-xs font-bold text-[#5f6e82] dark:text-[#b9d1df]">Dosage<input required value={dosage} onChange={(e) => setDosage(e.target.value)} className="app-focus mt-2 h-11 w-full rounded-lg border border-[#dfe6ec] bg-white px-3 text-sm outline-none dark:border-[#315069] dark:bg-[#173247]" placeholder="10 mg" /></label><label className="block text-xs font-bold text-[#5f6e82] dark:text-[#b9d1df]">Due time<input type="time" required value={timeOfDay} onChange={(e) => setTimeOfDay(e.target.value)} className="app-focus mt-2 h-11 w-full rounded-lg border border-[#dfe6ec] bg-white px-3 text-sm outline-none dark:border-[#315069] dark:bg-[#173247]" /></label></div><label className="block text-xs font-bold text-[#5f6e82] dark:text-[#b9d1df]">Frequency<select value={frequency} onChange={(e) => setFrequency(e.target.value)} className="app-focus mt-2 h-11 w-full rounded-lg border border-[#dfe6ec] bg-white px-3 text-sm outline-none dark:border-[#315069] dark:bg-[#173247]"><option>Once daily</option><option>Twice daily</option><option>As needed</option></select></label>{frequency === "Twice daily" && <label className="block text-xs font-bold">Second due time<input type="time" required value={secondTimeOfDay} onChange={(event) => setSecondTimeOfDay(event.target.value)} className="app-focus mt-2 h-11 w-full rounded-lg border bg-transparent px-3 text-sm" /></label>}</div>
             </div>
             <div className="border-t border-[#edf0f4] bg-white px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 dark:border-[#315069] dark:bg-[#132b3b] sm:rounded-b-2xl sm:px-6"><button disabled={pending} className="app-focus min-h-11 w-full rounded-lg bg-[#1e7b8c] px-4 py-3 text-sm font-bold text-white hover:bg-[#176b7a] disabled:cursor-wait disabled:opacity-60">{pending ? 'Saving…' : 'Save medication'}</button></div>
           </form>
