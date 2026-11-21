@@ -1,8 +1,8 @@
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { medicationLogs, medicationSchedules, medications, notificationSettings } from '@/lib/db/schema'
-import { addDaysToDateString, formatLocalDate, generateDailyOccurrences, getDoseDisplayStatus } from '@/lib/scheduler'
-import { occurrenceKey } from '@/lib/medication-rules'
+import { addDaysToDateString, formatLocalDate, generateDailyOccurrences } from '@/lib/scheduler'
+import { missedDosesToRecord } from '@/lib/missed-doses'
 import { formatDateForTimeZone, getGreetingForTimeZone } from '@/lib/timezone-display'
 import { and, eq } from 'drizzle-orm'
 import { headers } from 'next/headers'
@@ -33,13 +33,17 @@ export async function DashboardPage() {
       scheduleTimezone,
     ),
   }))
-  const missed = recentOccurrences.flatMap((medication) => medication.occurrences
-    .filter((dose) => dose.localDate >= formatLocalDate(medication.createdAt, scheduleTimezone) && getDoseDisplayStatus(dose.scheduledUtc, now) === 'missed')
-    .filter((dose) => !doseRows.some((log) => log.medicationId === medication.id && (
-      (log.status !== 'scheduled' && log.scheduledAt.getTime() === dose.scheduledUtc.getTime())
-      || (log.status === 'taken' && medication.occurrences.length === 2 && formatLocalDate(log.scheduledAt, scheduleTimezone) === dose.localDate)
-    )))
-    .map(({ scheduledUtc }) => ({ userId: session.user.id, medicationId: medication.id, scheduledAt: scheduledUtc, occurrenceKey: occurrenceKey(medication.id, scheduledUtc), status: 'missed' })))
+  const missed = missedDosesToRecord(
+    medicationRows.filter((medication) => medication.active).map((medication) => ({
+      id: medication.id,
+      updatedAt: medication.updatedAt,
+      frequency: medication.frequency,
+      times: schedules.filter((schedule) => schedule.medicationId === medication.id).map((schedule) => schedule.timeOfDay),
+    })),
+    doseRows,
+    now,
+    scheduleTimezone,
+  ).map((dose) => ({ ...dose, userId: session.user.id, status: 'missed' }))
   const recordedMissed = missed.length
     ? await db.insert(medicationLogs).values(missed).onConflictDoUpdate({
       target: [medicationLogs.userId, medicationLogs.occurrenceKey],
