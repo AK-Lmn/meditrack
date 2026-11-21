@@ -5,6 +5,7 @@ import { db } from '@/lib/db'
 import { medicationLogs, medicationReminders, medicationSchedules, medications, notifications, notificationSettings, pushSubscriptions } from '@/lib/db/schema'
 import { occurrenceKey } from '@/lib/medication-rules'
 import { dueDosesToday } from '@/lib/due-notifications'
+import { isAllowedPushEndpoint, isValidPushKey } from '@/lib/push-endpoint'
 import { localDatetimeToUtc } from '@/lib/scheduler'
 import { takeDose } from './doses'
 import { isVapidConfigured } from '@/lib/web-push'
@@ -111,7 +112,7 @@ export async function dismissNotification(id: number) {
 
 export async function savePushSubscription(subscription: { endpoint: string; keys?: { p256dh?: string; auth?: string } }) {
   const userId = await getUserId()
-  if (!subscription.endpoint || !subscription.keys?.p256dh || !subscription.keys.auth) throw new Error('Invalid subscription.')
+  if (!isAllowedPushEndpoint(subscription.endpoint) || !isValidPushKey(subscription.keys?.p256dh) || !isValidPushKey(subscription.keys?.auth)) throw new Error('Invalid subscription.')
   await db.insert(pushSubscriptions).values({
     userId,
     endpoint: subscription.endpoint,

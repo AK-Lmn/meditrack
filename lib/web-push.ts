@@ -8,6 +8,7 @@
  */
 import webpush from 'web-push'
 import type { PushSubscription as WebPushSubscription } from 'web-push'
+import { isAllowedPushEndpoint } from './push-endpoint'
 
 if (typeof window !== 'undefined') {
   throw new Error('lib/web-push.ts must only be imported on the server side.')
@@ -56,6 +57,11 @@ export async function sendPushNotification(
   subscription: { endpoint: string; p256dh: string; auth: string },
   payload: PushPayload,
 ): Promise<PushResult> {
+  // Rows saved before endpoints were validated are treated as expired, so the caller deletes them.
+  if (!isAllowedPushEndpoint(subscription.endpoint)) {
+    return { ok: false, expired: true, error: 'Endpoint is not an allowed push service.' }
+  }
+
   ensureConfigured()
 
   const pushSub: WebPushSubscription = {
