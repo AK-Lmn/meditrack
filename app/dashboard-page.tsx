@@ -2,7 +2,7 @@ import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { medicationLogs, medicationSchedules, medications, notificationSettings } from '@/lib/db/schema'
 import { addDaysToDateString, formatLocalDate, generateDailyOccurrences } from '@/lib/scheduler'
-import { missedDosesToRecord } from '@/lib/missed-doses'
+import { dosesScheduledFrom, missedDosesToRecord } from '@/lib/missed-doses'
 import { formatDateForTimeZone, getGreetingForTimeZone } from '@/lib/timezone-display'
 import { and, eq } from 'drizzle-orm'
 import { headers } from 'next/headers'
@@ -61,7 +61,7 @@ export async function DashboardPage() {
   const scheduledMedications = recentOccurrences.map(({ occurrences, ...medication }) => ({
     ...medication,
     scheduleTimes: schedules.filter((schedule) => schedule.medicationId === medication.id).map((schedule) => schedule.timeOfDay).sort(),
-    todayOccurrences: occurrences.filter((dose) => dose.localDate === today),
+    todayOccurrences: dosesScheduledFrom(occurrences.filter((dose) => dose.localDate === today), medication.createdAt),
   }))
   const archived = medicationRows.filter((medication) => !medication.active).map(({ id, name, dosage }) => ({ id, name, dosage }))
   return <MediTrackDashboard key={session.user.id} medications={scheduledMedications} archivedMedications={archived} doses={doses} user={{ name: session.user.name, email: session.user.email }} initialTimezone={timezone} initialGreeting={getGreetingForTimeZone(timezone, now)} initialLocalDate={localDate} initialNow={now.getTime()} />

@@ -39,3 +39,8 @@ export function missedDosesToRecord(
       .map(({ scheduledUtc }) => ({ medicationId: id, scheduledAt: scheduledUtc, occurrenceKey: occurrenceKey(id, scheduledUtc) }))
   })
 }
+
+/** Doses due at or after `from`. A medication added mid-day has no earlier dose that day. */
+export function dosesScheduledFrom<T extends { scheduledUtc: Date }>(doses: T[], from: Date): T[] {
+  return doses.filter((dose) => dose.scheduledUtc >= from)
+}
