@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { missedDosesToRecord } from '../lib/missed-doses'
+import { dosesScheduledFrom, missedDosesToRecord } from '../lib/missed-doses'
 
 const tz = 'Asia/Manila'
 // 2026-11-21 20:48 Manila
@@ -66,5 +66,22 @@ describe('missedDosesToRecord', () => {
   it('ignores as-needed medications and medications without a schedule', () => {
     expect(missedDosesToRecord([med({ frequency: 'As needed' })], [], now, tz)).toEqual([])
     expect(missedDosesToRecord([med({ times: [] })], [], now, tz)).toEqual([])
+  })
+})
+
+describe('dosesScheduledFrom', () => {
+  const doses = [
+    { scheduledUtc: new Date('2026-11-21T00:00:00Z') }, // 08:00 Manila
+    { scheduledUtc: new Date('2026-11-21T12:00:00Z') }, // 20:00 Manila
+  ]
+
+  it('drops today doses that were due before the medication was added', () => {
+    const addedAt = new Date('2026-11-21T06:30:00Z') // 14:30 Manila
+    expect(dosesScheduledFrom(doses, addedAt)).toEqual([doses[1]])
+  })
+
+  it('keeps every dose for a medication added earlier, and a dose due at the exact moment it was added', () => {
+    expect(dosesScheduledFrom(doses, new Date('2026-11-20T00:00:00Z'))).toEqual(doses)
+    expect(dosesScheduledFrom(doses, new Date('2026-11-21T12:00:00Z'))).toEqual([doses[1]])
   })
 })
