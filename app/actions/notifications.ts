@@ -132,7 +132,7 @@ async function generateDueNotificationsForUser(userId: string, now = new Date())
   const rows = await db.select({ medication: medications, schedule: medicationSchedules }).from(medicationSchedules).innerJoin(medications, eq(medicationSchedules.medicationId, medications.id)).where(and(eq(medicationSchedules.userId, userId), eq(medicationSchedules.enabled, true), eq(medications.active, true)))
   const medicationsById = new Map(rows.map(({ medication }) => [medication.id, medication]))
   const due = dueDosesToday(rows.map(({ medication, schedule }) => ({ medicationId: medication.id, timeOfDay: schedule.timeOfDay })), now, settings?.timezone ?? 'UTC')
-  for (const { medicationId, scheduledAt, occurrenceKey: key } of due) {
+  for (const { medicationId, scheduledAt, occurrenceKey: key, notificationKey } of due) {
     const medication = medicationsById.get(medicationId)
     if (!medication) continue
     const [taken] = await db.select({ id: medicationLogs.id }).from(medicationLogs).where(and(eq(medicationLogs.userId, userId), eq(medicationLogs.medicationId, medicationId), eq(medicationLogs.occurrenceKey, key), eq(medicationLogs.status, 'taken'))).limit(1)
@@ -143,7 +143,7 @@ async function generateDueNotificationsForUser(userId: string, now = new Date())
       userId,
       medicationId,
       doseOccurrenceId: log.id,
-      occurrenceKey: key,
+      occurrenceKey: notificationKey,
       title: `${medication.name} is due`,
       message: `${medication.name} ${medication.dosage} is due.`,
     }).onConflictDoNothing({ target: [notifications.userId, notifications.occurrenceKey, notifications.type] })

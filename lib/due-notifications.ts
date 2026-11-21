@@ -1,7 +1,14 @@
 import { occurrenceKey } from './medication-rules'
-import { formatLocalDate, localDatetimeToUtc } from './scheduler'
+import { buildOccurrenceKey, formatLocalDate, localDatetimeToUtc } from './scheduler'
 
-export type DueDose = { medicationId: number; scheduledAt: Date; occurrenceKey: string }
+export type DueDose = {
+  medicationId: number
+  scheduledAt: Date
+  /** Key of the dose log row. Instant-based, same as the dashboard and dose actions. */
+  occurrenceKey: string
+  /** Key of the notification. Local date and time, same as the QStash reminders, so each dose has one notification. */
+  notificationKey: string
+}
 
 const TIME_OF_DAY = /^([01]\d|2[0-3]):[0-5]\d$/
 
@@ -27,6 +34,6 @@ export function dueDosesToday(
     const time = timeOfDay && TIME_OF_DAY.test(timeOfDay) ? timeOfDay : '08:00'
     const scheduledAt = localDatetimeToUtc(today, time, timezone)
     if (Number.isNaN(scheduledAt.getTime()) || scheduledAt > now) return []
-    return [{ medicationId, scheduledAt, occurrenceKey: occurrenceKey(medicationId, scheduledAt) }]
+    return [{ medicationId, scheduledAt, occurrenceKey: occurrenceKey(medicationId, scheduledAt), notificationKey: buildOccurrenceKey(medicationId, today, time) }]
   })
 }

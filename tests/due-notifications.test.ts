@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { dueDosesToday } from '../lib/due-notifications'
+import { localDatetimeToUtc } from '../lib/scheduler'
 
 describe('dueDosesToday', () => {
   it('uses the user timezone for the local day and due time (Asia/Manila)', () => {
@@ -46,5 +47,16 @@ describe('dueDosesToday', () => {
     const [dose] = dueDosesToday([{ medicationId: 1, timeOfDay: '' }], now, 'Asia/Manila')
     expect(dose.scheduledAt.toISOString()).toBe('2026-11-21T00:00:00.000Z')
     expect(dueDosesToday([{ medicationId: 1, timeOfDay: '08:00' }], now, 'Not/AZone')).toEqual([])
+  })
+
+  it('keys the notification by local date and time so Take now resolves the real dose', () => {
+    const now = new Date('2026-11-21T12:48:22Z')
+    const [dose] = dueDosesToday([{ medicationId: 7, timeOfDay: '20:00' }], now, 'Asia/Manila')
+    // Same format the QStash reminders use, so both paths share one notification per dose.
+    expect(dose.notificationKey).toBe('7:2026-11-21T20:00')
+    // takeNotificationDose reads this key back as a local wall-clock time in the user's timezone.
+    const [, occurrence] = dose.notificationKey.split(/:(?=\d{4}-)/)
+    const [date, time] = occurrence.split('T')
+    expect(localDatetimeToUtc(date, time, 'Asia/Manila').getTime()).toBe(dose.scheduledAt.getTime())
   })
 })
