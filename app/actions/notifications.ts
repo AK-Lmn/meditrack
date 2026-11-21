@@ -4,6 +4,7 @@ import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { medicationLogs, medicationReminders, medicationSchedules, medications, notifications, notificationSettings, pushSubscriptions } from '@/lib/db/schema'
 import { occurrenceKey } from '@/lib/medication-rules'
+import { dueDosesToday } from '@/lib/due-notifications'
 import { localDatetimeToUtc } from '@/lib/scheduler'
 import { takeDose } from './doses'
 import { isVapidConfigured } from '@/lib/web-push'
@@ -123,27 +124,28 @@ export async function savePushSubscription(subscription: { endpoint: string; key
   })
 }
 
-export async function generateDueNotificationsForUser(userId: string, now = new Date()) {
+// Not exported: every export of a 'use server' file is a public endpoint, and this takes a userId.
+async function generateDueNotificationsForUser(userId: string, now = new Date()) {
   const [settings] = await db.select().from(notificationSettings).where(eq(notificationSettings.userId, userId)).limit(1)
   if (settings && !settings.medicationReminders) return
 
   const rows = await db.select({ medication: medications, schedule: medicationSchedules }).from(medicationSchedules).innerJoin(medications, eq(medicationSchedules.medicationId, medications.id)).where(and(eq(medicationSchedules.userId, userId), eq(medicationSchedules.enabled, true), eq(medications.active, true)))
-  const today = now.toISOString().slice(0, 10)
-  for (const row of rows) {
-    const scheduledAt = new Date(`${today}T${row.schedule.timeOfDay || '08:00'}:00`)
-    if (Number.isNaN(scheduledAt.getTime()) || scheduledAt > now) continue
-    const key = occurrenceKey(row.medication.id, scheduledAt)
-    const [taken] = await db.select({ id: medicationLogs.id }).from(medicationLogs).where(and(eq(medicationLogs.userId, userId), eq(medicationLogs.medicationId, row.medication.id), eq(medicationLogs.occurrenceKey, key), eq(medicationLogs.status, 'taken'))).limit(1)
+  const medicationsById = new Map(rows.map(({ medication }) => [medication.id, medication]))
+  const due = dueDosesToday(rows.map(({ medication, schedule }) => ({ medicationId: medication.id, timeOfDay: schedule.timeOfDay })), now, settings?.timezone ?? 'UTC')
+  for (const { medicationId, scheduledAt, occurrenceKey: key } of due) {
+    const medication = medicationsById.get(medicationId)
+    if (!medication) continue
+    const [taken] = await db.select({ id: medicationLogs.id }).from(medicationLogs).where(and(eq(medicationLogs.userId, userId), eq(medicationLogs.medicationId, medicationId), eq(medicationLogs.occurrenceKey, key), eq(medicationLogs.status, 'taken'))).limit(1)
     if (taken) continue
-    const [log] = await db.insert(medicationLogs).values({ userId, medicationId: row.medication.id, scheduledAt, status: 'scheduled', occurrenceKey: key }).onConflictDoUpdate({ target: [medicationLogs.userId, medicationLogs.occurrenceKey], set: { status: 'scheduled' }, setWhere: eq(medicationLogs.status, 'scheduled') }).returning()
+    const [log] = await db.insert(medicationLogs).values({ userId, medicationId, scheduledAt, status: 'scheduled', occurrenceKey: key }).onConflictDoUpdate({ target: [medicationLogs.userId, medicationLogs.occurrenceKey], set: { status: 'scheduled' }, setWhere: eq(medicationLogs.status, 'scheduled') }).returning()
     if (!log) continue
     await db.insert(notifications).values({
       userId,
-      medicationId: row.medication.id,
+      medicationId,
       doseOccurrenceId: log.id,
       occurrenceKey: key,
-      title: `${row.medication.name} is due`,
-      message: `${row.medication.name} ${row.medication.dosage} is due.`,
+      title: `${medication.name} is due`,
+      message: `${medication.name} ${medication.dosage} is due.`,
     }).onConflictDoNothing({ target: [notifications.userId, notifications.occurrenceKey, notifications.type] })
   }
 }
