@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useEffect, useState, useTransition } from 'react'
+import { useEffect, useRef, useState, useTransition } from 'react'
 import { Dialog } from '@base-ui/react/dialog'
 import { archiveMedication, createMedication, deleteMedication, editMedication, restoreMedication } from '@/app/actions/medications'
 import { takeDose, undoDose } from '@/app/actions/doses'
@@ -715,9 +715,18 @@ function InstallButton({ installEvent, onDone }: { installEvent: Event | null; o
 function MedicationForm({ medication, onClose, onSaved }: { medication: Medication | null; onClose: () => void; onSaved: () => void }) {
   const [name, setName] = useState(medication?.name ?? '')
   const [dosage, setDosage] = useState(medication?.dosage ?? '')
-  const [frequency, setFrequency] = useState(medication?.frequency ?? 'Once daily')
-  const [secondTimeOfDay, setSecondTimeOfDay] = useState(medication?.scheduleTimes[1] ?? '20:00')
-  const [timeOfDay, setTimeOfDay] = useState(medication?.scheduleTimes[0] ?? '08:00')
+  const [asNeeded, setAsNeeded] = useState(medication?.frequency.toLowerCase().includes('needed') ?? false)
+  const [schedule, setSchedule] = useState(() =>
+    (medication?.scheduleTimes.length ? medication.scheduleTimes : ['08:00']).map((time, id) => ({ id, time })),
+  )
+  const nextDoseId = useRef(schedule.length)
+  const fieldLabel = 'block min-w-0 flex-1 text-xs font-bold text-[#5f6e82] dark:text-[#b9d1df]'
+  const fieldClass = 'app-focus mt-2 h-11 w-full rounded-lg border border-[#dfe6ec] bg-white px-3 text-sm outline-none dark:border-[#315069] dark:bg-[#173247]'
+
+  function addDose() {
+    const id = nextDoseId.current++
+    setSchedule((items) => [...items, { id, time: '' }])
+  }
   const [error, setError] = useState('')
   const [pending, startTransition] = useTransition()
   return <Dialog.Root open onOpenChange={(nextOpen) => { if (!nextOpen) onClose() }}>
@@ -725,11 +734,33 @@ function MedicationForm({ medication, onClose, onSaved }: { medication: Medicati
       <Dialog.Backdrop className="fixed inset-0 z-[60] bg-[#18243a]/45 backdrop-blur-sm" />
       <Dialog.Viewport className="fixed inset-0 z-[61] flex items-end justify-center sm:items-center sm:p-4">
         <Dialog.Popup initialFocus className="flex max-h-[100dvh] min-h-[100dvh] w-full max-w-md flex-col bg-white shadow-xl outline-none dark:bg-[#132b3b] sm:min-h-0 sm:max-h-[min(90dvh,720px)] sm:rounded-2xl">
-          <form onSubmit={(event) => { event.preventDefault(); startTransition(async () => { try { const input = { name, dosage, frequency, timeOfDay, secondTimeOfDay }; if (medication) await editMedication(medication.id, input); else await createMedication(input); onSaved() } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to save medication.') } }) }} className="flex min-h-0 flex-1 flex-col">
+          <form onSubmit={(event) => { event.preventDefault(); startTransition(async () => { try { const input = { name, dosage, frequency: asNeeded ? 'As needed' : 'Daily', scheduleTimes: (asNeeded ? schedule.slice(0, 1) : schedule).map((dose) => dose.time) }; if (medication) await editMedication(medication.id, input); else await createMedication(input); onSaved() } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to save medication.') } }) }} className="flex min-h-0 flex-1 flex-col">
             <div className="flex items-start justify-between border-b border-[#edf0f4] px-5 pb-4 pt-[max(1.25rem,env(safe-area-inset-top))] dark:border-[#315069] sm:p-6 sm:pb-4"><div><Dialog.Title className="text-lg font-bold">{medication ? 'Edit medication' : 'Add medication'}</Dialog.Title><Dialog.Description className="mt-1 text-xs text-[#8794a5] dark:text-[#a8c4d3]">Keep your care plan up to date.</Dialog.Description></div><Dialog.Close className="app-focus flex h-11 w-11 items-center justify-center rounded-lg text-[#95a0af] hover:bg-[#f3f6f8] dark:hover:bg-[#173247]" aria-label="Close medication form"><X size={18} aria-hidden="true" /></Dialog.Close></div>
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6">
               {error && <p role="alert" className="mb-4 rounded-lg bg-[#fff2f2] px-3 py-2 text-xs font-semibold text-[#a84f5a] dark:bg-[#3a1f2a] dark:text-[#f3b3bb]">{error}</p>}
-              <div className="space-y-4"><label className="block text-xs font-bold text-[#5f6e82] dark:text-[#b9d1df]">Medication name<input autoComplete="off" required value={name} onChange={(e) => setName(e.target.value)} className="app-focus mt-2 h-11 w-full rounded-lg border border-[#dfe6ec] bg-white px-3 text-sm outline-none dark:border-[#315069] dark:bg-[#173247]" placeholder="e.g. Lisinopril" /></label><div className="grid gap-3 sm:grid-cols-2"><label className="block text-xs font-bold text-[#5f6e82] dark:text-[#b9d1df]">Dosage<input required value={dosage} onChange={(e) => setDosage(e.target.value)} className="app-focus mt-2 h-11 w-full rounded-lg border border-[#dfe6ec] bg-white px-3 text-sm outline-none dark:border-[#315069] dark:bg-[#173247]" placeholder="10 mg" /></label><label className="block text-xs font-bold text-[#5f6e82] dark:text-[#b9d1df]">Due time<input type="time" required value={timeOfDay} onChange={(e) => setTimeOfDay(e.target.value)} className="app-focus mt-2 h-11 w-full rounded-lg border border-[#dfe6ec] bg-white px-3 text-sm outline-none dark:border-[#315069] dark:bg-[#173247]" /></label></div><label className="block text-xs font-bold text-[#5f6e82] dark:text-[#b9d1df]">Frequency<select value={frequency} onChange={(e) => setFrequency(e.target.value)} className="app-focus mt-2 h-11 w-full rounded-lg border border-[#dfe6ec] bg-white px-3 text-sm outline-none dark:border-[#315069] dark:bg-[#173247]"><option>Once daily</option><option>Twice daily</option><option>As needed</option></select></label>{frequency === "Twice daily" && <label className="block text-xs font-bold">Second due time<input type="time" required value={secondTimeOfDay} onChange={(event) => setSecondTimeOfDay(event.target.value)} className="app-focus mt-2 h-11 w-full rounded-lg border bg-transparent px-3 text-sm" /></label>}</div>
+              <div className="space-y-4">
+                <label className={fieldLabel}>Medication name
+                  <input autoComplete="off" required value={name} onChange={(event) => setName(event.target.value)} className={fieldClass} placeholder="e.g. Lisinopril" />
+                </label>
+                <label className={fieldLabel}>Dosage
+                  <input required value={dosage} onChange={(event) => setDosage(event.target.value)} className={fieldClass} placeholder="10 mg" />
+                </label>
+                <label className={fieldLabel}>Frequency
+                  <select value={asNeeded ? 'as-needed' : 'daily'} onChange={(event) => setAsNeeded(event.target.value === 'as-needed')} className={fieldClass}>
+                    <option value="daily">Daily</option>
+                    <option value="as-needed">As needed</option>
+                  </select>
+                </label>
+                {(asNeeded ? schedule.slice(0, 1) : schedule).map((dose, index) => (
+                  <div key={dose.id} className="flex items-end gap-2">
+                    <label className={fieldLabel}>{asNeeded ? 'Due time' : `Dose ${index + 1} time`}
+                      <input type="time" required value={dose.time} onChange={(event) => setSchedule((items) => items.map((item) => item.id === dose.id ? { ...item, time: event.target.value } : item))} className={fieldClass} />
+                    </label>
+                    {!asNeeded && schedule.length > 1 && <button type="button" aria-label={`Remove dose ${index + 1}`} onClick={() => setSchedule((items) => items.filter((item) => item.id !== dose.id))} className="app-focus min-h-11 rounded-lg border px-3 text-xs font-bold">Remove</button>}
+                  </div>
+                ))}
+                {!asNeeded && schedule.length < 1440 && <button type="button" onClick={addDose} className="app-focus min-h-11 rounded-lg border px-3 text-xs font-bold">Add dose time</button>}
+              </div>
             </div>
             <div className="border-t border-[#edf0f4] bg-white px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 dark:border-[#315069] dark:bg-[#132b3b] sm:rounded-b-2xl sm:px-6"><button disabled={pending} className="app-focus min-h-11 w-full rounded-lg bg-[#1e7b8c] px-4 py-3 text-sm font-bold text-white hover:bg-[#176b7a] disabled:cursor-wait disabled:opacity-60">{pending ? 'Saving…' : 'Save medication'}</button></div>
           </form>
