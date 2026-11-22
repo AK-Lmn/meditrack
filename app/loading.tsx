@@ -21,7 +21,7 @@ export default function Loading() {
           <div className="h-1 w-24 overflow-hidden rounded-full bg-[#e3e9ef] dark:bg-[#1a384e]">
             <div className="h-full w-12 animate-loading-bar rounded-full bg-[#1e7b8c] dark:bg-[#84B3CE] motion-reduce:animate-none" />
           </div>
-          <span className="text-[11px] font-semibold tracking-wider uppercase text-[#8b98aa] dark:text-[#a8c4d3]">
+          <span className="text-[11px] font-semibold tracking-wider uppercase text-copy-muted dark:text-[#a8c4d3]">
             Loading Care Plan
           </span>
         </div>
