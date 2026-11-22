@@ -5,6 +5,7 @@ import { enterDashboard } from '@/app/actions/auth-navigation'
 import { authClient } from '@/lib/auth-client'
 import { passwordRules, validNewPassword } from '@/lib/account-rules'
 import { PasswordField } from '@/components/password-field'
+import { FieldErrorMessage, fieldErrorAttributes, useFieldErrors } from '@/components/field-errors'
 import Link from 'next/link'
 
 export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
@@ -12,19 +13,24 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
   const [notice, setNotice] = useState('')
   const [verificationEmail, setVerificationEmail] = useState('')
   const [loading, setLoading] = useState(false)
+  const fields = useFieldErrors()
+  const nameError = fields.errorFor('name')
+  const emailError = fields.errorFor('email')
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
     setNotice('')
     setVerificationEmail('')
-    const data = new FormData(event.currentTarget)
+    const form = event.currentTarget
+    const data = new FormData(form)
     const name = String(data.get('name') ?? '').trim()
     const email = String(data.get('email') ?? '').trim()
     const password = String(data.get('password') ?? '')
-    if (mode === 'sign-up' && !name) return setError('Enter your name.')
-    if (!email || !(event.currentTarget.elements.namedItem('email') as HTMLInputElement).validity.valid) return setError('Enter a valid email address.')
-    if (!password) return setError('Enter your password.')
-    if (mode === 'sign-up' && !validNewPassword(password)) return setError(passwordRules)
+    if (!fields.validate(form, {
+      name: mode === 'sign-up' && !name ? 'Enter your name.' : undefined,
+      email: !email || !(form.elements.namedItem('email') as HTMLInputElement).validity.valid ? 'Enter a valid email address.' : undefined,
+      password: !password ? 'Enter your password.' : mode === 'sign-up' && !validNewPassword(password) ? passwordRules : undefined,
+    })) return
 
     setLoading(true)
     try {
@@ -67,9 +73,9 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
     }
   }
   return <form noValidate onSubmit={submit} className="space-y-4">
-    {mode === 'sign-up' && <label className="block text-sm font-semibold text-[#526277] dark:text-[#d4e2e8]">Name<input name="name" autoComplete="name" required className="app-focus mt-2 h-11 w-full rounded-lg border border-[#dfe6ec] bg-white px-3 outline-none dark:border-[#315069] dark:bg-[#173247] dark:text-[#f5eedd]" /></label>}
-    <label className="block text-sm font-semibold text-[#526277] dark:text-[#d4e2e8]">Email<input name="email" type="email" autoComplete="email" required className="app-focus mt-2 h-11 w-full rounded-lg border border-[#dfe6ec] bg-white px-3 outline-none dark:border-[#315069] dark:bg-[#173247] dark:text-[#f5eedd]" /></label>
-    <PasswordField label="Password" name="password" autoComplete={mode === 'sign-up' ? 'new-password' : 'current-password'} descriptionId={mode === 'sign-up' ? 'signup-password-rules' : undefined} />
+    {mode === 'sign-up' && <div><label className="block text-sm font-semibold text-[#526277] dark:text-[#d4e2e8]">Name<input name="name" autoComplete="name" required {...fieldErrorAttributes(nameError)} className="app-focus mt-2 h-11 w-full rounded-lg border border-[#dfe6ec] bg-white px-3 outline-none dark:border-[#315069] dark:bg-[#173247] dark:text-[#f5eedd]" /></label><FieldErrorMessage error={nameError} /></div>}
+    <div><label className="block text-sm font-semibold text-[#526277] dark:text-[#d4e2e8]">Email<input name="email" type="email" autoComplete="email" required {...fieldErrorAttributes(emailError)} className="app-focus mt-2 h-11 w-full rounded-lg border border-[#dfe6ec] bg-white px-3 outline-none dark:border-[#315069] dark:bg-[#173247] dark:text-[#f5eedd]" /></label><FieldErrorMessage error={emailError} /></div>
+    <PasswordField label="Password" name="password" autoComplete={mode === 'sign-up' ? 'new-password' : 'current-password'} descriptionId={mode === 'sign-up' ? 'signup-password-rules' : undefined} error={fields.errorFor('password')} />
     {mode === 'sign-up' ? <p id="signup-password-rules" className="text-xs">{passwordRules}</p> : <Link href="/forgot-password" className="app-focus inline-block rounded text-sm font-semibold text-[#1e7b8c] dark:text-[#84B3CE]">Forgot password?</Link>}
     {error && <p role="alert" aria-live="assertive" className="text-sm text-[#a84f5a] dark:text-[#f3b3bb]">{error}</p>}
     {notice && <p role="status" className="text-sm">{notice}</p>}
