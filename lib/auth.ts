@@ -21,6 +21,9 @@ export const passwordResetEnabled = Boolean(resetSender)
 
 export const auth = betterAuth({
   database: pool,
+  rateLimit: {
+    storage: 'database',
+  },
 
   baseURL:
     process.env.BETTER_AUTH_URL ??

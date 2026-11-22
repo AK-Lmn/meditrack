@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, serial, integer, date, index, unique } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, boolean, serial, integer, bigint, date, index, unique } from 'drizzle-orm/pg-core'
 
 export const user = pgTable('user', { id: text('id').primaryKey(), name: text('name').notNull(), email: text('email').notNull().unique(), emailVerified: boolean('emailVerified').notNull().default(false), image: text('image'), createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow() })
 export const session = pgTable('session', { id: text('id').primaryKey(), expiresAt: timestamp('expiresAt').notNull(), token: text('token').notNull().unique(), createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow(), ipAddress: text('ipAddress'), userAgent: text('userAgent'), userId: text('userId').notNull() })
@@ -37,7 +37,14 @@ export const medicationReminders = pgTable('medication_reminders', {
   userIdx: index('medication_reminders_user_idx').on(table.userId),
 }))
 
-export const schema = { user, session, account, verification, medications, medicationLogs, medicationSchedules, notifications, pushSubscriptions, notificationSettings, medicationReminders }
+export const rateLimit = pgTable('rateLimit', {
+  id: text('id').primaryKey(),
+  key: text('key').notNull().unique(),
+  count: integer('count').notNull(),
+  lastRequest: bigint('lastRequest', { mode: 'number' }).notNull(),
+})
+
+export const schema = { user, session, account, verification, rateLimit, medications, medicationLogs, medicationSchedules, notifications, pushSubscriptions, notificationSettings, medicationReminders }
 export type Medication = typeof medications.$inferSelect
 export type NewMedication = typeof medications.$inferInsert
 export type MedicationReminder = typeof medicationReminders.$inferSelect
