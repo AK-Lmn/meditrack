@@ -394,7 +394,7 @@ function DashboardView(props: { activeLabel: string; medications: Medication[]; 
 }
 
 /** Shared medication card list used on both Dashboard and Medicines views. */
-function MedicationList({ filtered, takenIds, pendingDoseId, setShowAdd, toggleDose, manage, title = "Today's medications", subtitle = "Your active prescriptions and today's dose status." }: { filtered: Medication[]; takenIds: Set<number>; pendingDoseId: number | null; setShowAdd: (value: boolean) => void; toggleDose: (id: number) => void; manage: ManageMedication; title?: string; subtitle?: string }) {
+export function MedicationList({ filtered, takenIds, pendingDoseId, setShowAdd, toggleDose, manage, title = "Today's medications", subtitle = "Your active prescriptions and today's dose status." }: { filtered: Medication[]; takenIds: Set<number>; pendingDoseId: number | null; setShowAdd: (value: boolean) => void; toggleDose: (id: number) => void; manage: ManageMedication; title?: string; subtitle?: string }) {
   return (
     <section className="rounded-2xl border border-[#e5eaf1] bg-white p-4 shadow-[0_2px_8px_rgba(31,52,76,0.025)] sm:p-6 dark:border-[#254258] dark:bg-[#132b3b]">
       <div className="flex items-start justify-between gap-3">
@@ -409,6 +409,8 @@ function MedicationList({ filtered, takenIds, pendingDoseId, setShowAdd, toggleD
       <div className="mt-6 space-y-3">
         {filtered.length ? filtered.map((medicine) => {
           const isTaken = takenIds.has(medicine.id)
+          const hasScheduledDose = medicine.todayOccurrences.length > 0
+          const isAsNeeded = medicine.frequency.toLowerCase().includes('needed')
           return (
             <article key={medicine.id} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-[#edf0f4] bg-white p-3.5 dark:border-[#315069] dark:bg-[#0f2635] sm:grid-cols-[auto_minmax(0,1fr)_auto_auto]">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#e5f4f6] text-[#237e8c] dark:bg-[#173247] dark:text-[#84B3CE]">
@@ -417,11 +419,11 @@ function MedicationList({ filtered, takenIds, pendingDoseId, setShowAdd, toggleD
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="truncate text-sm font-bold sm:text-[15px]">{medicine.name}</h3>
-                  <StatusBadge status={isTaken ? 'taken' : medicine.doseStatus === 'missed' || medicine.doseStatus === 'overdue' ? medicine.doseStatus : medicine.frequency.toLowerCase().includes('needed') ? 'as-needed' : 'upcoming'} />
+                  {(isTaken || isAsNeeded || hasScheduledDose) && <StatusBadge status={isTaken ? 'taken' : medicine.doseStatus === 'missed' || medicine.doseStatus === 'overdue' ? medicine.doseStatus : isAsNeeded ? 'as-needed' : 'upcoming'} />}
                 </div>
                 <div className="mt-1 text-sm font-semibold text-[#536479] dark:text-[#d4e2e8]">{medicine.dosage}</div>
                 <div className="mt-1 flex items-center gap-1.5 text-xs text-[#8491a3] dark:text-[#a8c4d3]">
-                  <Clock3 size={13} aria-hidden="true" /> <span>{medicine.frequency}{medicine.todayOccurrences.length > 0 && ` · Due ${medicine.todayOccurrences.map((dose) => dose.timeOfDay).join(', ')}`} · {isTaken ? 'Completed today' : 'Scheduled today'}</span>
+                  <Clock3 size={13} aria-hidden="true" /> <span>{medicine.frequency}{hasScheduledDose && ` · Due ${medicine.todayOccurrences.map((dose) => dose.timeOfDay).join(', ')}`}{isTaken ? ' · Completed today' : hasScheduledDose ? ' · Scheduled today' : !isAsNeeded && ' · No dose scheduled today'}</span>
                 </div>
               </div>
               <button
