@@ -100,7 +100,7 @@ export async function takeNotificationDose(id: number) {
   }
 
   await takeDose(notification.medicationId, scheduledAt)
-  await db.update(notifications).set({ read: true })
+  await db.update(notifications).set({ read: true, dismissed: true })
     .where(and(eq(notifications.id, id), eq(notifications.userId, userId)))
 }
 
