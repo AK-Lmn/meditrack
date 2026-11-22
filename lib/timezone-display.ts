@@ -1,5 +1,18 @@
 export type TimeOfDayGreeting = 'Good morning' | 'Good afternoon' | 'Good evening' | 'Good night'
 
+export const supportedTimezones = ['UTC', ...Intl.supportedValuesOf('timeZone')]
+
+export function requireTimezone(value: unknown): string {
+  if (typeof value !== 'string' || !value || /^[+-]/.test(value)) throw new Error('Invalid timezone.')
+  try {
+    // Keep supported aliases usable for accounts that already saved them.
+    new Intl.DateTimeFormat('en', { timeZone: value })
+    return value
+  } catch {
+    throw new Error('Invalid timezone.')
+  }
+}
+
 export function getGreetingForHour(hour: number): TimeOfDayGreeting {
   if (hour >= 5 && hour < 12) return 'Good morning'
   if (hour >= 12 && hour < 17) return 'Good afternoon'
