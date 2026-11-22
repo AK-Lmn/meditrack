@@ -6,7 +6,7 @@ import { Dialog } from '@base-ui/react/dialog'
 import { deleteCurrentAccount } from '@/app/actions/account'
 import { PasswordField, authInput } from '@/components/password-field'
 import { passwordRules, validNewPassword } from '@/lib/account-rules'
-import { authClient } from '@/lib/auth-client'
+import { authClient, signOutCurrentDevice } from '@/lib/auth-client'
 
 const panel = 'rounded-2xl border border-[#e5eaf1] bg-white p-5 dark:border-[#254258] dark:bg-[#132b3b]'
 const save = 'app-focus min-h-11 rounded-lg bg-[#1e7b8c] px-4 text-sm font-bold text-white disabled:opacity-60'
@@ -110,7 +110,7 @@ function DeleteAccount() {
       setPending(false)
       return
     }
-    try { await authClient.signOut() } finally { window.location.replace('/sign-in') }
+    try { await signOutCurrentDevice() } finally { window.location.replace('/sign-in') }
   }
 
   return <section className={panel}>

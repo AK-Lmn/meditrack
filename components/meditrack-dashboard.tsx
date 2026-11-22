@@ -10,7 +10,7 @@ import { dismissNotification, getNotificationState, markNotificationRead, refres
 import { AccountSettings } from '@/components/account-settings'
 import { DoseAnalytics, DoseHistory, type DoseHistoryEntry } from '@/components/dose-history'
 import { ThemeSelect } from '@/components/theme-provider'
-import { authClient } from '@/lib/auth-client'
+import { signOutCurrentDevice } from '@/lib/auth-client'
 import { calculateStreak } from '@/lib/adherence'
 import { getDailyDoseState, summarizeDailyAdherence } from '@/lib/daily-dose-state'
 import { addDaysToDateString, formatLocalDate, getDoseDisplayStatus, localDatetimeToUtc, MISSED_DOSE_WINDOW_MS, type DoseDisplayStatus, type ScheduledOccurrence } from '@/lib/scheduler'
@@ -63,6 +63,15 @@ export default function MediTrackDashboard({ medications: initialMedications, ar
 
   const [clock, setClock] = useState(initialNow)
   const now = new Date(Math.max(clock, initialNow))
+  async function signOutDevice() {
+    try {
+      await signOutCurrentDevice()
+      window.location.replace('/sign-in')
+    } catch {
+      setToast({ id: Date.now(), kind: 'error', text: 'Could not sign out. Try again.' })
+    }
+  }
+
   function takeReminderDose(id: number, medicationId: number | null) {
     if (!medicationId) return
     startTransition(async () => {
@@ -292,7 +301,7 @@ export default function MediTrackDashboard({ medications: initialMedications, ar
 
   return <div className="min-h-screen bg-[#f6f8fb] text-[#18243a] dark:bg-[#0d2230] dark:text-[#f5eedd]">
     {offline && <div role="status" aria-live="polite" className="fixed inset-x-0 top-0 z-50 bg-[#c58b35] px-4 py-2 text-center text-xs font-bold text-[#18243a]">You&apos;re offline. Medication changes need an active connection.</div>}
-    <Sidebar medications={medications.length} activeLabel={activeLabel} user={user} initials={initials} />
+    <Sidebar medications={medications.length} activeLabel={activeLabel} user={user} initials={initials} onSignOut={signOutDevice} />
     <Dialog.Root open={mobileOpen} onOpenChange={setMobileOpen}>
       <Dialog.Portal>
         <Dialog.Backdrop className="fixed inset-0 z-40 bg-[#0b1c28]/55 lg:hidden" />
@@ -300,7 +309,7 @@ export default function MediTrackDashboard({ medications: initialMedications, ar
           <Dialog.Title className="sr-only">Navigation</Dialog.Title>
           <Dialog.Description className="sr-only">Navigate to another MediTrack section.</Dialog.Description>
           <Dialog.Close className="app-focus absolute right-3 top-3 z-10 flex h-11 w-11 items-center justify-center rounded-lg text-[#718096] hover:bg-[#f5f7fa] dark:text-[#b9d1df] dark:hover:bg-[#173247]" aria-label="Close navigation"><X size={18} aria-hidden="true" /></Dialog.Close>
-          <SidebarContent medications={medications.length} activeLabel={activeLabel} user={user} initials={initials} onNavigate={() => setMobileOpen(false)} />
+          <SidebarContent medications={medications.length} activeLabel={activeLabel} user={user} initials={initials} onSignOut={signOutDevice} onNavigate={() => setMobileOpen(false)} />
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>
@@ -335,11 +344,11 @@ function urlBase64ToUint8Array(base64String: string) {
   return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)))
 }
 
-function Sidebar({ medications, activeLabel, user, initials }: { medications: number; activeLabel: string; user: { name: string; email: string }; initials: string }) {
-  return <aside className="fixed inset-y-0 left-0 z-20 hidden w-[248px] border-r border-[#e5eaf1] bg-white lg:flex lg:flex-col dark:border-[#254258] dark:bg-[#132b3b]"><SidebarContent medications={medications} activeLabel={activeLabel} user={user} initials={initials} /></aside>
+function Sidebar({ medications, activeLabel, user, initials, onSignOut }: { medications: number; activeLabel: string; user: { name: string; email: string }; initials: string; onSignOut: () => void }) {
+  return <aside className="fixed inset-y-0 left-0 z-20 hidden w-[248px] border-r border-[#e5eaf1] bg-white lg:flex lg:flex-col dark:border-[#254258] dark:bg-[#132b3b]"><SidebarContent medications={medications} activeLabel={activeLabel} user={user} initials={initials} onSignOut={onSignOut} /></aside>
 }
 
-function SidebarContent({ medications, activeLabel, user, initials, onNavigate }: { medications: number; activeLabel: string; user: { name: string; email: string }; initials: string; onNavigate?: () => void }) {
+function SidebarContent({ medications, activeLabel, user, initials, onSignOut, onNavigate }: { medications: number; activeLabel: string; user: { name: string; email: string }; initials: string; onSignOut: () => void; onNavigate?: () => void }) {
   return <><div className="flex h-[112px] items-center px-5 border-b border-[#eef1f5] dark:border-[#254258]">
     <div className="h-[78px] w-full">
       <img
@@ -353,7 +362,7 @@ function SidebarContent({ medications, activeLabel, user, initials, onNavigate }
         className="hidden dark:block h-full w-full object-contain object-left"
       />
     </div>
-  </div><div className="flex flex-1 flex-col px-4 py-7"><div className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#9aa6b7] dark:text-[#84B3CE]">Workspace</div><nav className="space-y-1">{nav.map(([label, href, Icon]) => <Link key={href} href={href} onClick={onNavigate} className={`flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#84B3CE] ${activeLabel === label ? 'bg-[#eaf6f6] text-[#146b7a] dark:bg-[#173247] dark:text-[#84B3CE]' : 'text-[#718096] hover:bg-[#f5f7fa] dark:text-[#b9d1df] dark:hover:bg-[#173247]'}`}><Icon size={18} strokeWidth={1.9} /><span>{label}</span>{label === 'Medicines' && <span className="ml-auto rounded-full bg-[#edf1f5] px-2 py-0.5 text-[10px] text-[#728097] dark:bg-[#0d2230] dark:text-[#b9d1df]">{medications}</span>}</Link>)}</nav><div className="mt-auto rounded-xl bg-[#f3f8f8] p-4 dark:bg-[#173247]"><div className="flex items-center gap-2 text-[#1f7988] dark:text-[#84B3CE]"><ShieldCheck size={17} /><span className="text-xs font-bold">Your data is private</span></div><p className="mt-2 text-[11px] leading-5 text-[#77909a] dark:text-[#b9d1df]">Private medication data is never cached by the service worker.</p></div></div><div className="flex items-center gap-3 border-t border-[#eef1f5] px-5 py-5 dark:border-[#254258]"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#dbe9ee] text-sm font-bold text-[#256b79] dark:bg-[#173247] dark:text-[#f5eedd]">{initials}</div><div className="min-w-0 flex-1"><div className="truncate text-xs font-bold">{user.name}</div><div className="truncate text-[11px] text-[#8b98aa] dark:text-[#a8c4d3]">{user.email}</div></div><button onClick={() => authClient.signOut().then(() => location.assign('/sign-in'))} className="rounded-lg p-2 text-[#9aa5b4] hover:bg-[#fff2f2] hover:text-[#b45e68]" aria-label="Sign out"><LogOut size={17} /></button></div></>
+  </div><div className="flex flex-1 flex-col px-4 py-7"><div className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#9aa6b7] dark:text-[#84B3CE]">Workspace</div><nav className="space-y-1">{nav.map(([label, href, Icon]) => <Link key={href} href={href} onClick={onNavigate} className={`flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#84B3CE] ${activeLabel === label ? 'bg-[#eaf6f6] text-[#146b7a] dark:bg-[#173247] dark:text-[#84B3CE]' : 'text-[#718096] hover:bg-[#f5f7fa] dark:text-[#b9d1df] dark:hover:bg-[#173247]'}`}><Icon size={18} strokeWidth={1.9} /><span>{label}</span>{label === 'Medicines' && <span className="ml-auto rounded-full bg-[#edf1f5] px-2 py-0.5 text-[10px] text-[#728097] dark:bg-[#0d2230] dark:text-[#b9d1df]">{medications}</span>}</Link>)}</nav><div className="mt-auto rounded-xl bg-[#f3f8f8] p-4 dark:bg-[#173247]"><div className="flex items-center gap-2 text-[#1f7988] dark:text-[#84B3CE]"><ShieldCheck size={17} /><span className="text-xs font-bold">Your data is private</span></div><p className="mt-2 text-[11px] leading-5 text-[#77909a] dark:text-[#b9d1df]">Private medication data is never cached by the service worker.</p></div></div><div className="flex items-center gap-3 border-t border-[#eef1f5] px-5 py-5 dark:border-[#254258]"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#dbe9ee] text-sm font-bold text-[#256b79] dark:bg-[#173247] dark:text-[#f5eedd]">{initials}</div><div className="min-w-0 flex-1"><div className="truncate text-xs font-bold">{user.name}</div><div className="truncate text-[11px] text-[#8b98aa] dark:text-[#a8c4d3]">{user.email}</div></div><button onClick={onSignOut} className="rounded-lg p-2 text-[#9aa5b4] hover:bg-[#fff2f2] hover:text-[#b45e68]" aria-label="Sign out"><LogOut size={17} /></button></div></>
 }
 
 function BottomNav({ activeLabel, onMore }: { activeLabel: string; onMore: () => void }) {
