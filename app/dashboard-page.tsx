@@ -2,7 +2,7 @@ import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { medicationLogs, medicationSchedules, medications, notificationSettings } from '@/lib/db/schema'
 import { addDaysToDateString, formatLocalDate, generateDailyOccurrences } from '@/lib/scheduler'
-import { dosesScheduledFrom, missedDosesToRecord } from '@/lib/missed-doses'
+import { dosesScheduledFrom } from '@/lib/missed-doses'
 import { formatDateForTimeZone, getGreetingForTimeZone } from '@/lib/timezone-display'
 import { and, eq } from 'drizzle-orm'
 import { headers } from 'next/headers'
@@ -33,26 +33,8 @@ export async function DashboardPage() {
       scheduleTimezone,
     ),
   }))
-  const missed = missedDosesToRecord(
-    medicationRows.filter((medication) => medication.active).map((medication) => ({
-      id: medication.id,
-      updatedAt: medication.updatedAt,
-      frequency: medication.frequency,
-      times: schedules.filter((schedule) => schedule.medicationId === medication.id).map((schedule) => schedule.timeOfDay),
-    })),
-    doseRows,
-    now,
-    scheduleTimezone,
-  ).map((dose) => ({ ...dose, userId: session.user.id, status: 'missed' }))
-  const recordedMissed = missed.length
-    ? await db.insert(medicationLogs).values(missed).onConflictDoUpdate({
-      target: [medicationLogs.userId, medicationLogs.occurrenceKey],
-      set: { status: 'missed' },
-      setWhere: eq(medicationLogs.status, 'scheduled'),
-    }).returning({ id: medicationLogs.id, medicationId: medicationLogs.medicationId, status: medicationLogs.status, scheduledAt: medicationLogs.scheduledAt, takenAt: medicationLogs.takenAt }) : []
-  const recordedIds = new Set(recordedMissed.map((dose) => dose.id))
   const medicationsById = new Map(medicationRows.map((medication) => [medication.id, medication]))
-  const doses = [...recordedMissed, ...doseRows.filter((dose) => !recordedIds.has(dose.id))]
+  const doses = doseRows
     .sort((a, b) => b.scheduledAt.getTime() - a.scheduledAt.getTime() || b.id - a.id)
     .map((dose) => {
       const medication = medicationsById.get(dose.medicationId)
