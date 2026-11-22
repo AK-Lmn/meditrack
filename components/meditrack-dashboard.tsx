@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState, useTransition } from 'react'
 import { Dialog } from '@base-ui/react/dialog'
+import { Menu as BaseMenu } from '@base-ui/react/menu'
 import { archiveMedication, createMedication, deleteMedication, editMedication, restoreMedication } from '@/app/actions/medications'
 import { takeDose, undoDose } from '@/app/actions/doses'
 import { dismissNotification, getNotificationState, markNotificationRead, refreshNotifications, savePushSubscription, takeNotificationDose, updateNotificationSettings } from '@/app/actions/notifications'
@@ -28,6 +29,7 @@ type NotificationSettings = { medicationReminders: boolean; browserNotifications
 type ToastMessage = { id: number; kind: 'success' | 'error'; text: string; undoMedicationId?: number; undoScheduledAt?: Date }
 type NotificationStatus = 'loading' | 'ready' | 'error'
 const managementButton = 'app-focus min-h-10 rounded-md px-3 text-left text-xs font-bold text-[#526277] hover:bg-[#f3f6f8] dark:text-[#b9d1df] dark:hover:bg-[#173247]'
+const destructiveManagementButton = 'app-focus min-h-10 rounded-md px-3 text-left text-xs font-bold text-[#a34f5a] hover:bg-[#fff2f2] dark:text-[#e9a0a9] dark:hover:bg-[#3a1f2a]'
 
 const nav = [
   ['Dashboard', '/', LayoutDashboard],
@@ -449,14 +451,20 @@ export function MedicationList({ filtered, takenIds, pendingDoseId, setShowAdd, 
                 {isTaken ? <Undo2 size={15} aria-hidden="true" /> : <Check size={16} aria-hidden="true" />}
                 <span>{pendingDoseId === medicine.id ? 'Updating…' : isTaken ? 'Undo taken' : 'Mark taken'}</span>
               </button>
-              <details className="relative self-center justify-self-end sm:row-auto">
-                <summary className="app-focus flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-lg text-copy-muted hover:bg-[#f3f6f8] dark:text-[#bdd5df] dark:hover:bg-[#173247] [&::-webkit-details-marker]:hidden" aria-label={`More actions for ${medicine.name}`}><MoreHorizontal size={19} aria-hidden="true" /></summary>
-                <div className="absolute bottom-12 right-0 z-20 w-40 rounded-lg border border-[#e5eaf1] bg-white p-1.5 shadow-lg dark:border-[#315069] dark:bg-[#173247]">
-                  <button type="button" onClick={() => manage.edit(medicine)} className={managementButton}>Edit</button>
-                  <button type="button" onClick={() => manage.request('archive', medicine)} className="app-focus flex min-h-10 w-full items-center gap-2 rounded-md px-3 text-left text-xs font-bold text-[#a34f5a] hover:bg-[#fff2f2] dark:text-[#e9a0a9] dark:hover:bg-[#3a1f2a]"><X size={15} aria-hidden="true" /> Archive</button>
-                  <button type="button" onClick={() => manage.request('delete', medicine)} className={managementButton}>Delete</button>
-                </div>
-              </details>
+              <BaseMenu.Root>
+                <BaseMenu.Trigger className="app-focus flex h-11 w-11 items-center justify-center self-center justify-self-end rounded-lg text-[#526277] hover:bg-[#f3f6f8] dark:text-[#bdd5df] dark:hover:bg-[#173247]" aria-label={`More actions for ${medicine.name}`}>
+                  <MoreHorizontal size={19} aria-hidden="true" />
+                </BaseMenu.Trigger>
+                <BaseMenu.Portal>
+                  <BaseMenu.Positioner side="top" align="end" sideOffset={6} className="z-40">
+                    <BaseMenu.Popup className="grid w-40 rounded-lg border border-[#e5eaf1] bg-white p-1.5 shadow-lg dark:border-[#315069] dark:bg-[#173247]">
+                      <BaseMenu.Item onClick={() => manage.edit(medicine)} className={`${managementButton} flex cursor-pointer items-center data-highlighted:bg-[#f3f6f8] dark:data-highlighted:bg-[#0f2635]`}>Edit</BaseMenu.Item>
+                      <BaseMenu.Item onClick={() => manage.request('archive', medicine)} className={`${managementButton} flex cursor-pointer items-center data-highlighted:bg-[#f3f6f8] dark:data-highlighted:bg-[#0f2635]`}>Archive</BaseMenu.Item>
+                      <BaseMenu.Item onClick={() => manage.request('delete', medicine)} className={`${destructiveManagementButton} flex cursor-pointer items-center data-highlighted:bg-[#fff2f2] dark:data-highlighted:bg-[#3a1f2a]`}>Delete permanently</BaseMenu.Item>
+                    </BaseMenu.Popup>
+                  </BaseMenu.Positioner>
+                </BaseMenu.Portal>
+              </BaseMenu.Root>
             </article>
           )
         }) : (
@@ -580,7 +588,7 @@ function ArchivedMedications({ medications, manage }: { medications: MedicationS
         <div className="min-w-0 break-words text-sm"><div className="font-semibold">{medicine.name}</div><div>{medicine.dosage}</div></div>
         <div className="flex flex-wrap gap-1">
           <button type="button" onClick={() => manage.request('restore', medicine)} className={managementButton} aria-label={`Restore ${medicine.name}`}>Restore</button>
-          <button type="button" onClick={() => manage.request('delete', medicine)} className={managementButton} aria-label={`Delete ${medicine.name}`}>Delete</button>
+          <button type="button" onClick={() => manage.request('delete', medicine)} className={destructiveManagementButton} aria-label={`Permanently delete ${medicine.name}`}>Delete permanently</button>
         </div>
       </li>)}
     </ul> : <p className="mt-4 text-sm">No archived medications.</p>}
@@ -603,7 +611,7 @@ function MedicationActionDialog({ confirmation, pending, onClose, onConfirm }: {
           <Dialog.Description className="mt-2 text-sm leading-6 text-copy-muted dark:text-[#b9d1df]">{spec.description}</Dialog.Description>
           <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Dialog.Close disabled={pending} className="app-focus min-h-11 rounded-lg border border-[#dfe6ec] px-4 text-sm font-bold dark:border-[#315069]">Cancel</Dialog.Close>
-            <button type="button" disabled={pending} onClick={onConfirm} className={`app-focus min-h-11 rounded-lg px-4 text-sm font-bold text-white disabled:opacity-60 ${action === 'restore' ? 'bg-[#1e7b8c]' : 'bg-[#a84f5a]'}`}>{spec.label} medication</button>
+            <button type="button" disabled={pending} onClick={onConfirm} className={`app-focus min-h-11 rounded-lg px-4 text-sm font-bold text-white disabled:opacity-60 ${action === 'delete' ? 'bg-[#a84f5a]' : 'bg-[#1e7b8c]'}`}>{spec.label} medication</button>
           </div>
         </Dialog.Popup>
       </Dialog.Viewport>
