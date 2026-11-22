@@ -41,7 +41,7 @@ export function PasswordRecovery(props: { mode: 'request'; enabled: boolean } | 
     }
   }
 
-  return <main className="flex min-h-screen items-center justify-center bg-[#f6f8fb] p-5 dark:bg-[#0d2230]">
+  return <main id="main-content" tabIndex={-1} className="flex min-h-screen items-center justify-center bg-[#f6f8fb] p-5 dark:bg-[#0d2230]">
     <section className="w-full max-w-md space-y-4 rounded-2xl border border-[#e5eaf1] bg-white p-6 dark:border-[#254258] dark:bg-[#132b3b]">
       <h1 className="text-2xl font-bold">{requesting ? 'Forgot password' : 'Set a new password'}</h1>
       {!available && <p role="status" className="text-sm">{requesting ? 'Password recovery by email is currently unavailable.' : 'This reset link is invalid or expired.'}</p>}

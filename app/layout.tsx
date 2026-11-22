@@ -5,7 +5,7 @@ import { ThemeProvider } from '@/components/theme-provider'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'MediTrack',
+  title: { default: 'Dashboard | MediTrack', template: '%s | MediTrack' },
   description: 'A clear, private medication tracker for staying on top of your daily care.',
   manifest: '/manifest.webmanifest',
   appleWebApp: {
@@ -68,6 +68,7 @@ export default async function RootLayout({
         />
       </head>
       <body className="antialiased">
+        <a href="#main-content" className="app-focus sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-lg focus:bg-white focus:px-4 focus:py-3 focus:font-semibold focus:text-[#18243a] dark:focus:bg-[#132b3b] dark:focus:text-[#f5eedd]">Skip to main content</a>
         <ThemeProvider>{children}</ThemeProvider>
         {process.env.NODE_ENV === 'production' && <AppAnalytics />}
       </body>
