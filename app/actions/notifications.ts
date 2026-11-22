@@ -7,6 +7,7 @@ import { occurrenceKey } from '@/lib/medication-rules'
 import { dueDosesToday } from '@/lib/due-notifications'
 import { isAllowedPushEndpoint, isValidPushKey } from '@/lib/push-endpoint'
 import { localDatetimeToUtc } from '@/lib/scheduler'
+import { requireTimezone } from '@/lib/timezone-display'
 import { takeDose } from './doses'
 import { isVapidConfigured } from '@/lib/web-push'
 import { and, desc, eq } from 'drizzle-orm'
@@ -54,18 +55,19 @@ function listNotifications(userId: string) {
 
 export async function updateNotificationSettings(input: { medicationReminders?: boolean; browserNotifications?: boolean; timezone?: string }) {
   const userId = await getUserId()
+  const timezone = input.timezone === undefined ? 'UTC' : requireTimezone(input.timezone)
   await db.insert(notificationSettings).values({
     userId,
     medicationReminders: input.medicationReminders ?? true,
     browserNotifications: input.browserNotifications ?? false,
-    timezone: input.timezone || 'UTC',
+    timezone,
     updatedAt: new Date(),
   }).onConflictDoUpdate({
     target: notificationSettings.userId,
     set: {
       medicationReminders: input.medicationReminders ?? true,
       browserNotifications: input.browserNotifications ?? false,
-      timezone: input.timezone || 'UTC',
+      timezone,
       updatedAt: new Date(),
     },
   })
