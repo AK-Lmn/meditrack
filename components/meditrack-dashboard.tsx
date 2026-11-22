@@ -14,7 +14,7 @@ import { authClient } from '@/lib/auth-client'
 import { calculateStreak } from '@/lib/adherence'
 import { getDailyDoseState, summarizeDailyAdherence } from '@/lib/daily-dose-state'
 import { addDaysToDateString, formatLocalDate, getDoseDisplayStatus, localDatetimeToUtc, MISSED_DOSE_WINDOW_MS, type DoseDisplayStatus, type ScheduledOccurrence } from '@/lib/scheduler'
-import { formatDateForTimeZone, getGreetingForTimeZone, type TimeOfDayGreeting } from '@/lib/timezone-display'
+import { formatDateForTimeZone, getGreetingForTimeZone, supportedTimezones, type TimeOfDayGreeting } from '@/lib/timezone-display'
 import { Activity, Bell, CalendarDays, Check, CheckCircle2, ChevronDown, Clock3, Download, FileText, LayoutDashboard, LogOut, Menu, MoreHorizontal, Pill, Plus, Search, Settings, ShieldCheck, TrendingUp, Undo2, X } from 'lucide-react'
 
 type MedicationSummary = { id: number; name: string; dosage: string }
@@ -54,7 +54,7 @@ export default function MediTrackDashboard({ medications: initialMedications, ar
   const [notificationOpen, setNotificationOpen] = useState(false)
   const [notifications, setNotifications] = useState<NotificationRow[]>([])
   const [notificationStatus, setNotificationStatus] = useState<NotificationStatus>('loading')
-  const [settings, setSettings] = useState<NotificationSettings>({ medicationReminders: true, browserNotifications: false, reminderMinutesBefore: 0, timezone: initialTimezone ?? '' })
+  const [settings, setSettings] = useState<NotificationSettings>({ medicationReminders: true, browserNotifications: false, reminderMinutesBefore: 0, timezone: initialTimezone ?? 'UTC' })
   const [greeting, setGreeting] = useState<TimeOfDayGreeting | null>(initialGreeting)
   const [localDate, setLocalDate] = useState<string | null>(initialLocalDate)
   const [permissionMessage, setPermissionMessage] = useState('')
@@ -665,15 +665,9 @@ function SettingsView({ user, settings, permissionMessage, vapidConfigured, hasA
             <span className="block text-sm font-bold">Timezone</span>
             <span className="text-xs text-[#8491a3] dark:text-[#a8c4d3]">Reminders schedule relative to this timezone.</span>
           </div>
-          <select aria-label="Timezone" value={settings.timezone} onChange={(e) => onToggleTimezone(e.target.value)} className="app-focus h-11 w-full rounded-lg border border-[#dfe6ec] bg-white px-3 text-xs text-[#18243a] outline-none dark:border-[#315069] dark:bg-[#173247] dark:text-[#f5eedd] sm:w-auto">
-            <option value="UTC">UTC</option>
-            <option value="Asia/Manila">Asia/Manila (PHT)</option>
-            <option value="America/New_York">America/New_York (EST/EDT)</option>
-            <option value="America/Chicago">America/Chicago (CST/CDT)</option>
-            <option value="America/Denver">America/Denver (MST/MDT)</option>
-            <option value="America/Los_Angeles">America/Los_Angeles (PST/PDT)</option>
-            <option value="Europe/London">Europe/London (GMT/BST)</option>
-            <option value="Europe/Paris">Europe/Paris (CET/CEST)</option>
+          <select aria-label="Timezone" value={settings.timezone || 'UTC'} onChange={(e) => onToggleTimezone(e.target.value)} className="app-focus h-11 w-full rounded-lg border border-[#dfe6ec] bg-white px-3 text-xs text-[#18243a] outline-none dark:border-[#315069] dark:bg-[#173247] dark:text-[#f5eedd] sm:w-auto">
+            {settings.timezone && !supportedTimezones.includes(settings.timezone) && <option value={settings.timezone}>{settings.timezone}</option>}
+            {supportedTimezones.map((timezone) => <option key={timezone} value={timezone}>{timezone}</option>)}
           </select>
         </div>
       </SettingsSection>

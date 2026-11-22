@@ -33,6 +33,10 @@ export async function recordDoseStatus(
   scheduledAt = new Date()
 ) {
   const userId = await getUserId()
+  if (!['scheduled', 'taken', 'missed', 'skipped'].includes(status)) throw new Error('Invalid dose status.')
+  if (!(scheduledAt instanceof Date) || !Number.isFinite(scheduledAt.getTime()) || scheduledAt.getUTCFullYear() < 1 || scheduledAt.getUTCFullYear() > 9999) {
+    throw new Error('Invalid scheduled dose time.')
+  }
   const [owned] = await db
     .select({ id: medications.id })
     .from(medications)
