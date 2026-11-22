@@ -5,7 +5,7 @@ import { db } from '@/lib/db'
 import { medicationLogs, medicationReminders, medicationSchedules, medications, notifications, notificationSettings } from '@/lib/db/schema'
 import { cleanText, medicationColors, requireDosage, requireMedicationName } from '@/lib/medication-rules'
 import { scheduleReminder, cancelQueuedMessages } from '@/lib/reminder-scheduler'
-import type { DailyTimesRegimen } from '@/lib/scheduler'
+import { validateTimeFormat } from '@/lib/validation'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
@@ -22,22 +22,27 @@ export async function listMedications() {
   return db.select().from(medications).where(eq(medications.userId, userId)).orderBy(desc(medications.createdAt))
 }
 
-type MedicationInput = { name: unknown; dosage: unknown; frequency?: unknown; instructions?: unknown; color?: unknown; timeOfDay?: unknown; secondTimeOfDay?: unknown }
+type MedicationInput = { name: unknown; dosage: unknown; frequency?: unknown; instructions?: unknown; color?: unknown; timeOfDay?: unknown; secondTimeOfDay?: unknown; scheduleTimes?: unknown }
 
 function medicationFields(input: MedicationInput) {
-  const frequency = cleanText(input.frequency, 40) || 'Once daily'
-  const regimen: DailyTimesRegimen = {
-    type: 'daily_times',
-    times: [cleanText(input.timeOfDay, 20) || '08:00'],
+  const legacyFrequency = cleanText(input.frequency, 40) || 'Once daily'
+  const legacyTimes = [cleanText(input.timeOfDay, 20) || '08:00']
+  if (legacyFrequency.toLowerCase() === 'twice daily') {
+    legacyTimes.push(cleanText(input.secondTimeOfDay, 20) || '20:00')
   }
-  if (frequency.toLowerCase() === 'twice daily') {
-    regimen.times.push(cleanText(input.secondTimeOfDay, 20) || '20:00')
-  }
-  if (regimen.times.some((time) => !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) || new Set(regimen.times).size !== regimen.times.length) {
+  const rawTimes = input.scheduleTimes === undefined ? legacyTimes : input.scheduleTimes
+  if (!Array.isArray(rawTimes) || !rawTimes.length || rawTimes.length > 1440) {
     throw new Error('Choose a valid, distinct due time for each dose.')
   }
-
-  return { name: requireMedicationName(input.name), dosage: requireDosage(input.dosage), frequency, times: regimen.times }
+  const validatedTimes = Array.from(rawTimes, validateTimeFormat)
+  const times = validatedTimes.map(({ value }) => value).sort()
+  if (validatedTimes.some(({ valid }) => !valid) || new Set(times).size !== times.length) {
+    throw new Error('Choose a valid, distinct due time for each dose.')
+  }
+  const frequency = input.scheduleTimes === undefined || legacyFrequency.toLowerCase().includes('needed')
+    ? legacyFrequency
+    : times.length === 1 ? 'Once daily' : times.length === 2 ? 'Twice daily' : `${times.length} times daily`
+  return { name: requireMedicationName(input.name), dosage: requireDosage(input.dosage), frequency, times }
 }
 
 export async function createMedication(input: MedicationInput) {

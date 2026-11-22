@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useEffect, useState, useTransition } from 'react'
+import { useEffect, useRef, useState, useTransition } from 'react'
 import { Dialog } from '@base-ui/react/dialog'
 import { Menu as BaseMenu } from '@base-ui/react/menu'
 import { archiveMedication, createMedication, deleteMedication, editMedication, restoreMedication } from '@/app/actions/medications'
@@ -719,33 +719,44 @@ function InstallButton({ installEvent, onDone }: { installEvent: Event | null; o
 function MedicationForm({ medication, onClose, onSaved }: { medication: Medication | null; onClose: () => void; onSaved: () => void }) {
   const [name, setName] = useState(medication?.name ?? '')
   const [dosage, setDosage] = useState(medication?.dosage ?? '')
-  const [frequency, setFrequency] = useState(medication?.frequency ?? 'Once daily')
-  const [secondTimeOfDay, setSecondTimeOfDay] = useState(medication?.scheduleTimes[1] ?? '20:00')
-  const [timeOfDay, setTimeOfDay] = useState(medication?.scheduleTimes[0] ?? '08:00')
+  const [asNeeded, setAsNeeded] = useState(medication?.frequency.toLowerCase().includes('needed') ?? false)
+  const [schedule, setSchedule] = useState(() =>
+    (medication?.scheduleTimes.length ? medication.scheduleTimes : ['08:00']).map((time, id) => ({ id, time })),
+  )
+  const nextDoseId = useRef(schedule.length)
+  const fieldLabel = 'block min-w-0 flex-1 text-xs font-bold text-[#5f6e82] dark:text-[#b9d1df]'
+  const fieldClass = 'app-focus mt-2 h-11 w-full rounded-lg border border-[#dfe6ec] bg-white px-3 text-sm outline-none dark:border-[#315069] dark:bg-[#173247]'
+
+  function addDose() {
+    const id = nextDoseId.current++
+    setSchedule((items) => [...items, { id, time: '' }])
+  }
   const [error, setError] = useState('')
   const [pending, startTransition] = useTransition()
   const fields = useFieldErrors()
   const nameError = fields.errorFor('name')
   const dosageError = fields.errorFor('dosage')
-  const dueTimeError = fields.errorFor('timeOfDay')
-  const secondTimeError = fields.errorFor('secondTimeOfDay')
-  const fieldClass = 'app-focus mt-2 h-11 w-full rounded-lg border border-[#dfe6ec] bg-white px-3 text-sm outline-none dark:border-[#315069] dark:bg-[#173247]'
+  const visibleSchedule = asNeeded ? schedule.slice(0, 1) : schedule
 
   function saveMedication(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
+    const seen = new Set<string>()
+    const doseErrors: Record<string, string | undefined> = {}
+    for (const { id, time } of visibleSchedule) {
+      const { error, value } = validateTimeFormat(time)
+      doseErrors[`dose-${id}`] = error ?? (seen.has(value) ? 'Choose a different time for this dose.' : undefined)
+      seen.add(value)
+    }
     if (!fields.validate(event.currentTarget, {
       name: validateMedicationName(name).error,
       dosage: validateDosage(dosage).error,
-      timeOfDay: validateTimeFormat(timeOfDay).error,
-      secondTimeOfDay: frequency === 'Twice daily'
-        ? validateTimeFormat(secondTimeOfDay).error ?? (secondTimeOfDay === timeOfDay ? 'Choose a different time for the second dose.' : undefined)
-        : undefined,
+      ...doseErrors,
     })) return
 
     startTransition(async () => {
       try {
-        const input = { name, dosage, frequency, timeOfDay, secondTimeOfDay }
+        const input = { name, dosage, frequency: asNeeded ? 'As needed' : 'Daily', scheduleTimes: visibleSchedule.map(({ time }) => time) }
         if (medication) await editMedication(medication.id, input)
         else await createMedication(input)
         onSaved()
@@ -766,34 +777,37 @@ function MedicationForm({ medication, onClose, onSaved }: { medication: Medicati
               {error && <p role="alert" className="mb-4 rounded-lg bg-[#fff2f2] px-3 py-2 text-xs font-semibold text-[#a84f5a] dark:bg-[#3a1f2a] dark:text-[#f3b3bb]">{error}</p>}
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-bold text-[#5f6e82] dark:text-[#b9d1df]">Medication name
+                  <label className={fieldLabel}>Medication name
                     <input name="name" autoComplete="off" required value={name} onChange={(event) => setName(event.target.value)} {...fieldErrorAttributes(nameError)} className={fieldClass} placeholder="e.g. Lisinopril" />
                   </label>
                   <FieldErrorMessage error={nameError} />
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className="block text-xs font-bold text-[#5f6e82] dark:text-[#b9d1df]">Dosage
-                      <input name="dosage" required value={dosage} onChange={(event) => setDosage(event.target.value)} {...fieldErrorAttributes(dosageError)} className={fieldClass} placeholder="10 mg" />
-                    </label>
-                    <FieldErrorMessage error={dosageError} />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-[#5f6e82] dark:text-[#b9d1df]">Due time
-                      <input name="timeOfDay" type="time" required value={timeOfDay} onChange={(event) => setTimeOfDay(event.target.value)} {...fieldErrorAttributes(dueTimeError)} className={fieldClass} />
-                    </label>
-                    <FieldErrorMessage error={dueTimeError} />
-                  </div>
-                </div>
-                <label className="block text-xs font-bold text-[#5f6e82] dark:text-[#b9d1df]">Frequency
-                  <select value={frequency} onChange={(event) => setFrequency(event.target.value)} className={fieldClass}><option>Once daily</option><option>Twice daily</option><option>As needed</option></select>
-                </label>
-                {frequency === 'Twice daily' && <div>
-                  <label className="block text-xs font-bold">Second due time
-                    <input name="secondTimeOfDay" type="time" required value={secondTimeOfDay} onChange={(event) => setSecondTimeOfDay(event.target.value)} {...fieldErrorAttributes(secondTimeError)} className={fieldClass} />
+                <div>
+                  <label className={fieldLabel}>Dosage
+                    <input name="dosage" required value={dosage} onChange={(event) => setDosage(event.target.value)} {...fieldErrorAttributes(dosageError)} className={fieldClass} placeholder="10 mg" />
                   </label>
-                  <FieldErrorMessage error={secondTimeError} />
-                </div>}
+                  <FieldErrorMessage error={dosageError} />
+                </div>
+                <label className={fieldLabel}>Frequency
+                  <select value={asNeeded ? 'as-needed' : 'daily'} onChange={(event) => setAsNeeded(event.target.value === 'as-needed')} className={fieldClass}>
+                    <option value="daily">Daily</option>
+                    <option value="as-needed">As needed</option>
+                  </select>
+                </label>
+                {visibleSchedule.map((dose, index) => {
+                  const fieldName = `dose-${dose.id}`
+                  const doseError = fields.errorFor(fieldName)
+                  return <div key={dose.id}>
+                    <div className="flex items-end gap-2">
+                      <label className={fieldLabel}>{asNeeded ? 'Due time' : `Dose ${index + 1} time`}
+                        <input name={fieldName} type="time" required value={dose.time} onChange={(event) => setSchedule((items) => items.map((item) => item.id === dose.id ? { ...item, time: event.target.value } : item))} {...fieldErrorAttributes(doseError)} className={fieldClass} />
+                      </label>
+                      {!asNeeded && schedule.length > 1 && <button type="button" aria-label={`Remove dose ${index + 1}`} onClick={() => setSchedule((items) => items.filter((item) => item.id !== dose.id))} className="app-focus min-h-11 rounded-lg border px-3 text-xs font-bold">Remove</button>}
+                    </div>
+                    <FieldErrorMessage error={doseError} />
+                  </div>
+                })}
+                {!asNeeded && schedule.length < 1440 && <button type="button" onClick={addDose} className="app-focus min-h-11 rounded-lg border px-3 text-xs font-bold">Add dose time</button>}
               </div>
             </div>
             <div className="border-t border-[#edf0f4] bg-white px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 dark:border-[#315069] dark:bg-[#132b3b] sm:rounded-b-2xl sm:px-6"><button disabled={pending} className="app-focus min-h-11 w-full rounded-lg bg-[#1e7b8c] px-4 py-3 text-sm font-bold text-white hover:bg-[#176b7a] disabled:cursor-wait disabled:opacity-60">{pending ? 'Saving…' : 'Save medication'}</button></div>
