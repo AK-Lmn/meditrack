@@ -9,10 +9,14 @@ import Link from 'next/link'
 
 export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [verificationEmail, setVerificationEmail] = useState('')
   const [loading, setLoading] = useState(false)
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
+    setNotice('')
+    setVerificationEmail('')
     const data = new FormData(event.currentTarget)
     const name = String(data.get('name') ?? '').trim()
     const email = String(data.get('email') ?? '').trim()
@@ -25,17 +29,42 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
     setLoading(true)
     try {
       const result = mode === 'sign-up'
-        ? await authClient.signUp.email({ name, email, password })
+        ? await authClient.signUp.email({ name, email, password, callbackURL: '/sign-in' })
         : await authClient.signIn.email({ email, password })
       if (result.error) {
         setLoading(false)
+        if (mode === 'sign-in' && result.error.code === 'EMAIL_NOT_VERIFIED') {
+          setVerificationEmail(email)
+          return setError('Verify your email before signing in.')
+        }
         return setError('We could not complete that request. Check your details and try again.')
       }
     } catch {
       setLoading(false)
       return setError('Unable to reach MediTrack. Please try again.')
     }
+    if (mode === 'sign-up') {
+      setLoading(false)
+      setNotice('Check your email for a verification link, then sign in.')
+      return
+    }
     await enterDashboard()
+  }
+
+  async function resendVerification() {
+    setLoading(true)
+    setError('')
+    setNotice('')
+    try {
+      const result = await authClient.sendVerificationEmail({ email: verificationEmail, callbackURL: '/sign-in' })
+      if (result.error) throw new Error(result.error.message)
+      setVerificationEmail('')
+      setNotice('Check your email for a new verification link.')
+    } catch {
+      setError('Could not resend the verification email. Try again in a moment.')
+    } finally {
+      setLoading(false)
+    }
   }
   return <form noValidate onSubmit={submit} className="space-y-4">
     {mode === 'sign-up' && <label className="block text-sm font-semibold text-[#526277] dark:text-[#d4e2e8]">Name<input name="name" autoComplete="name" required className="app-focus mt-2 h-11 w-full rounded-lg border border-[#dfe6ec] bg-white px-3 outline-none dark:border-[#315069] dark:bg-[#173247] dark:text-[#f5eedd]" /></label>}
@@ -43,6 +72,8 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
     <PasswordField label="Password" name="password" autoComplete={mode === 'sign-up' ? 'new-password' : 'current-password'} descriptionId={mode === 'sign-up' ? 'signup-password-rules' : undefined} />
     {mode === 'sign-up' ? <p id="signup-password-rules" className="text-xs">{passwordRules}</p> : <Link href="/forgot-password" className="app-focus inline-block rounded text-sm font-semibold text-[#1e7b8c] dark:text-[#84B3CE]">Forgot password?</Link>}
     {error && <p role="alert" aria-live="assertive" className="text-sm text-[#a84f5a] dark:text-[#f3b3bb]">{error}</p>}
+    {notice && <p role="status" className="text-sm">{notice}</p>}
+    {verificationEmail && <button type="button" disabled={loading} onClick={resendVerification} className="app-focus rounded text-sm font-semibold text-[#1e7b8c] dark:text-[#84B3CE]">Resend verification email</button>}
     <button disabled={loading} aria-busy={loading} className="app-focus min-h-11 w-full rounded-lg bg-[#1e7b8c] py-3 text-sm font-bold text-white transition hover:bg-[#176b7a] disabled:opacity-60">{loading ? 'Please wait…' : mode === 'sign-up' ? 'Create account' : 'Sign in'}</button>
     {(process.env.NEXT_PUBLIC_MEDITRACK_TERMS_URL || process.env.NEXT_PUBLIC_MEDITRACK_PRIVACY_URL) && <div className="flex flex-wrap gap-4 text-xs">
       {process.env.NEXT_PUBLIC_MEDITRACK_TERMS_URL && <a className="app-focus underline" href={process.env.NEXT_PUBLIC_MEDITRACK_TERMS_URL}>Terms of service</a>}

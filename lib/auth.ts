@@ -1,4 +1,5 @@
 import { betterAuth } from 'better-auth'
+import { APIError } from 'better-auth/api'
 import { pool } from '@/lib/db'
 import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from '@/lib/account-rules'
 import { after } from 'next/server'
@@ -19,6 +20,19 @@ const resetSender = agentMailKey && agentMailInbox
 
 export const passwordResetEnabled = Boolean(resetSender)
 
+function sendAuthEmail(to: string, subject: string, text: string) {
+  const sender = resetSender
+  if (!sender) throw new APIError('SERVICE_UNAVAILABLE', { message: 'Email delivery is unavailable.' })
+  after(async () => {
+    const response = await fetch(sender.url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${sender.key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: sender.from, to: [to], subject, text }),
+    })
+    if (!response.ok) throw new Error(`Auth email delivery failed (${response.status}).`)
+  })
+}
+
 export const auth = betterAuth({
   database: pool,
   rateLimit: {
@@ -35,27 +49,48 @@ export const auth = betterAuth({
 
   emailAndPassword: {
     enabled: true,
-    autoSignIn: true,
+    autoSignIn: false,
     minPasswordLength: MIN_PASSWORD_LENGTH,
     maxPasswordLength: MAX_PASSWORD_LENGTH,
     revokeSessionsOnPasswordReset: true,
     ...(resetSender ? {
       sendResetPassword: async ({ user, url }) => {
-        after(async () => {
-          const response = await fetch(resetSender.url, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${resetSender.key}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              from: resetSender.from,
-              to: [user.email],
-              subject: 'Reset your MediTrack password',
-              text: `Reset your MediTrack password: ${url}\n\nIf you did not request this, you can ignore this email.`,
-            }),
-          })
-          if (!response.ok) throw new Error(`Password reset email delivery failed (${response.status}).`)
-        })
+        sendAuthEmail(user.email, 'Reset your MediTrack password', `Reset your MediTrack password: ${url}\n\nIf you did not request this, you can ignore this email.`)
       },
     } : {}),
+  },
+
+  emailVerification: {
+    sendOnSignUp: true,
+    sendVerificationEmail: async ({ user, url }) => {
+      sendAuthEmail(user.email, 'Verify your MediTrack email', `Verify your MediTrack email: ${url}\n\nIf you did not create an account, you can ignore this email.`)
+    },
+  },
+  user: {
+    additionalFields: {
+      requiresEmailVerification: { type: 'boolean', defaultValue: true, input: false, returned: false },
+    },
+  },
+  databaseHooks: {
+    user: {
+      create: {
+        before: async () => {
+          if (!resetSender) throw new APIError('SERVICE_UNAVAILABLE', { message: 'Email delivery is unavailable.' })
+        },
+      },
+    },
+    session: {
+      create: {
+        before: async (session, context) => {
+          const user = await context?.context.internalAdapter.findUserById(session.userId)
+          if (!user) return false
+          const isLegacyAccount = 'requiresEmailVerification' in user && user.requiresEmailVerification === false
+          if (!isLegacyAccount && !user.emailVerified) {
+            throw new APIError('FORBIDDEN', { code: 'EMAIL_NOT_VERIFIED', message: 'Verify your email before signing in.' })
+          }
+        },
+      },
+    },
   },
 
   trustedOrigins: [
