@@ -112,6 +112,12 @@ export async function dismissNotification(id: number) {
   revalidatePath('/')
 }
 
+export async function removePushSubscription(endpoint: string) {
+  const userId = await getUserId()
+  if (!isAllowedPushEndpoint(endpoint)) throw new Error('Invalid push endpoint.')
+  await db.delete(pushSubscriptions).where(and(eq(pushSubscriptions.userId, userId), eq(pushSubscriptions.endpoint, endpoint)))
+}
+
 export async function savePushSubscription(subscription: { endpoint: string; keys?: { p256dh?: string; auth?: string } }) {
   const userId = await getUserId()
   if (!isAllowedPushEndpoint(subscription.endpoint) || !isValidPushKey(subscription.keys?.p256dh) || !isValidPushKey(subscription.keys?.auth)) throw new Error('Invalid subscription.')
