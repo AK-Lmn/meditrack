@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/missed-doses",
+      "schedule": "0 18 * * *"
+    }
+  ]
+}
