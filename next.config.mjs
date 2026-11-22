@@ -4,7 +4,17 @@ const nextConfig = {
     unoptimized: true,
   },
   async headers() {
-    return [{ source: '/reset-password', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }] }]
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+        ],
+      },
+      { source: '/reset-password', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }] },
+    ]
   },
 }
 
