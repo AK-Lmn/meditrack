@@ -5,6 +5,7 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  --color-copy-muted: var(--copy-muted);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -47,6 +48,9 @@
 
 :root {
   color-scheme: light;
+  --copy-muted: #5b6b7e;
+  --field-border: #718096;
+  --app-focus-ring: #286e85;
   --background: #f6f8fb;
   --foreground: #18243a;
   --card: oklch(1 0 0);
@@ -83,6 +87,7 @@
 
 .dark {
   color-scheme: dark;
+  --app-focus-ring: #84b3ce;
   --background: #0d2230;
   --foreground: #f5eedd;
   --card: #132b3b;
@@ -119,6 +124,7 @@
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
     color-scheme: dark;
+    --app-focus-ring: #84b3ce;
     --background: #0d2230;
     --foreground: #f5eedd;
     --card: #132b3b;
@@ -163,9 +169,19 @@
 }
 
 @layer utilities {
+  :root.light :is(input:not([type='checkbox'], [type='radio']), select, textarea) {
+    border-color: var(--field-border);
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not(.dark) :is(input:not([type='checkbox'], [type='radio']), select, textarea) {
+      border-color: var(--field-border);
+    }
+  }
+
   :where(a, button, input, select, textarea, summary):focus-visible,
   .app-focus:focus-visible {
-    outline: 3px solid #84b3ce;
+    outline: 3px solid var(--app-focus-ring);
     outline-offset: 2px;
   }
 }

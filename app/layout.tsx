@@ -1,5 +1,6 @@
 import { AppAnalytics } from '@/components/app-analytics'
 import type { Metadata, Viewport } from 'next'
+import { headers } from 'next/headers'
 import { ThemeProvider } from '@/components/theme-provider'
 import './globals.css'
 
@@ -39,15 +40,18 @@ export const viewport: Viewport = {
   ],
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const nonce = (await headers()).get('x-nonce') ?? undefined
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
         <script
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: `(function() {
               try {

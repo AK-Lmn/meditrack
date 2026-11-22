@@ -9,6 +9,7 @@ import MediTrackDashboard from '@/components/meditrack-dashboard'
 import { ThemeProvider } from '@/components/theme-provider'
 
 vi.mock('next/navigation', () => ({ usePathname: () => '/medicines', useRouter: () => ({}) }))
+vi.mock('next/headers', () => ({ headers: async () => new Headers() }))
 
 it('provides a keyboard skip target and a separate loading status', async () => {
   const markup = renderToStaticMarkup(await RootLayout({ children: createElement(Loading) }))
