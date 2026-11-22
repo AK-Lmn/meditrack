@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Dialog } from '@base-ui/react/dialog'
 import { deleteCurrentAccount } from '@/app/actions/account'
 import { PasswordField, authInput } from '@/components/password-field'
+import { FieldErrorMessage, fieldErrorAttributes, useFieldErrors } from '@/components/field-errors'
 import { passwordRules, validNewPassword } from '@/lib/account-rules'
 import { authClient } from '@/lib/auth-client'
 
@@ -22,12 +23,15 @@ export function AccountSettings({ user }: { user: { name: string; email: string 
   const [passwordFeedback, setPasswordFeedback] = useState<Feedback | null>(null)
   const [savingProfile, setSavingProfile] = useState(false)
   const [savingPassword, setSavingPassword] = useState(false)
+  const profileFields = useFieldErrors()
+  const passwordFields = useFieldErrors()
+  const nameError = profileFields.errorFor('name')
 
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const name = String(new FormData(event.currentTarget).get('name') ?? '').trim()
-    if (!name || name.length > 80) return setProfileFeedback({ text: 'Enter a name between 1 and 80 characters.', error: true })
     setProfileFeedback(null)
+    if (!profileFields.validate(event.currentTarget, { name: !name || name.length > 80 ? 'Enter a name between 1 and 80 characters.' : undefined })) return
     setSavingProfile(true)
     try {
       const result = await authClient.updateUser({ name })
@@ -47,12 +51,12 @@ export function AccountSettings({ user }: { user: { name: string; email: string 
     const data = new FormData(form)
     const currentPassword = String(data.get('currentPassword') ?? '')
     const newPassword = String(data.get('newPassword') ?? '')
-    if (!currentPassword) return setPasswordFeedback({ text: 'Enter your current password.', error: true })
-    if (!validNewPassword(newPassword)) return setPasswordFeedback({ text: passwordRules, error: true })
-    if (newPassword === currentPassword) return setPasswordFeedback({ text: 'Choose a different password.', error: true })
-    if (newPassword !== data.get('confirmPassword')) return setPasswordFeedback({ text: 'The new passwords do not match.', error: true })
-
     setPasswordFeedback(null)
+    if (!passwordFields.validate(form, {
+      currentPassword: !currentPassword ? 'Enter your current password.' : undefined,
+      newPassword: !validNewPassword(newPassword) ? passwordRules : newPassword === currentPassword ? 'Choose a different password.' : undefined,
+      confirmPassword: newPassword !== data.get('confirmPassword') ? 'The new passwords do not match.' : undefined,
+    })) return
     setSavingPassword(true)
     try {
       const result = await authClient.changePassword({ currentPassword, newPassword, revokeOtherSessions: true })
@@ -71,7 +75,7 @@ export function AccountSettings({ user }: { user: { name: string; email: string 
       <h2 className="text-base font-bold">Profile</h2>
       <p className="mt-1 break-all text-sm">{user.email}</p>
       <form className="mt-4 max-w-md space-y-3" noValidate onSubmit={saveProfile}>
-        <label className="grid gap-2 text-sm font-semibold">Display name<input name="name" defaultValue={user.name} autoComplete="name" required className={authInput} /></label>
+        <div><label className="grid gap-2 text-sm font-semibold">Display name<input name="name" defaultValue={user.name} autoComplete="name" required {...fieldErrorAttributes(nameError)} className={authInput} /></label><FieldErrorMessage error={nameError} /></div>
         <FormFeedback feedback={profileFeedback} />
         <button className={save} disabled={savingProfile}>Save profile</button>
       </form>
@@ -79,10 +83,10 @@ export function AccountSettings({ user }: { user: { name: string; email: string 
     <section className={panel}>
       <h2 className="text-base font-bold">Change password</h2>
       <form className="mt-4 max-w-md space-y-3" noValidate onSubmit={changePassword}>
-        <PasswordField label="Current password" name="currentPassword" autoComplete="current-password" />
-        <PasswordField label="New password" name="newPassword" autoComplete="new-password" descriptionId="change-password-rules" />
+        <PasswordField label="Current password" name="currentPassword" autoComplete="current-password" error={passwordFields.errorFor('currentPassword')} />
+        <PasswordField label="New password" name="newPassword" autoComplete="new-password" descriptionId="change-password-rules" error={passwordFields.errorFor('newPassword')} />
         <p id="change-password-rules" className="text-xs">{passwordRules}</p>
-        <PasswordField label="Confirm new password" name="confirmPassword" autoComplete="new-password" />
+        <PasswordField label="Confirm new password" name="confirmPassword" autoComplete="new-password" error={passwordFields.errorFor('confirmPassword')} />
         <FormFeedback feedback={passwordFeedback} />
         <button className={save} disabled={savingPassword}>Change password</button>
       </form>
@@ -94,14 +98,19 @@ export function AccountSettings({ user }: { user: { name: string; email: string 
 function DeleteAccount() {
   const [feedback, setFeedback] = useState<Feedback | null>(null)
   const [pending, setPending] = useState(false)
+  const fields = useFieldErrors()
+  const confirmationError = fields.errorFor('confirmation')
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const data = new FormData(event.currentTarget)
     const password = String(data.get('password') ?? '')
     const confirmation = String(data.get('confirmation') ?? '')
-    if (confirmation !== 'DELETE' || !password) return setFeedback({ text: 'Enter your current password and type DELETE.', error: true })
     setFeedback(null)
+    if (!fields.validate(event.currentTarget, {
+      password: !password ? 'Enter your current password.' : undefined,
+      confirmation: confirmation !== 'DELETE' ? 'Type DELETE to confirm.' : undefined,
+    })) return
     setPending(true)
     try {
       await deleteCurrentAccount(password, confirmation)
@@ -115,7 +124,7 @@ function DeleteAccount() {
 
   return <section className={panel}>
     <h2 className="text-base font-bold">Delete account</h2>
-    <Dialog.Root onOpenChange={() => { if (!pending) setFeedback(null) }}>
+    <Dialog.Root onOpenChange={() => { if (!pending) { setFeedback(null); fields.clear() } }}>
       <Dialog.Trigger className="app-focus mt-3 min-h-11 rounded-lg border border-red-300 px-4 text-sm font-bold text-red-700 dark:text-red-200">Delete account</Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Backdrop className="fixed inset-0 z-[60] bg-[#18243a]/45 backdrop-blur-sm" />
@@ -124,8 +133,8 @@ function DeleteAccount() {
             <Dialog.Title className="text-lg font-bold">Permanently delete your account?</Dialog.Title>
             <Dialog.Description className="mt-2 text-sm">This removes your profile, medications, dose history, and reminders, and signs out all sessions.</Dialog.Description>
             <form noValidate onSubmit={submit} className="mt-4 space-y-3">
-              <PasswordField label="Current password" name="password" autoComplete="current-password" />
-              <label className="grid gap-2 text-sm font-semibold">Type DELETE to confirm<input name="confirmation" autoComplete="off" required className={authInput} /></label>
+              <PasswordField label="Current password" name="password" autoComplete="current-password" error={fields.errorFor('password')} />
+              <div><label className="grid gap-2 text-sm font-semibold">Type DELETE to confirm<input name="confirmation" autoComplete="off" required {...fieldErrorAttributes(confirmationError)} className={authInput} /></label><FieldErrorMessage error={confirmationError} /></div>
               <FormFeedback feedback={feedback} />
               <div className="flex flex-wrap justify-end gap-2">
                 <Dialog.Close disabled={pending} className="app-focus min-h-11 rounded-lg border px-4 text-sm font-semibold">Cancel</Dialog.Close>
