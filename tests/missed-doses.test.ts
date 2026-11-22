@@ -11,12 +11,33 @@ const med = (over: Partial<{ id: number; updatedAt: Date; frequency: string; tim
 
 describe('missedDosesToRecord', () => {
   it('backfills every past dose in the lookback window, not just the last two days', () => {
-    const missed = missedDosesToRecord([med()], [], now, tz)
+    const missed = missedDosesToRecord([med()], [], now, tz, 14)
     // Nov 7 to Nov 21 inclusive: 15 daily 08:00 doses, all more than an hour past due.
     expect(missed).toHaveLength(15)
     expect(missed[0].scheduledAt.toISOString()).toBe('2026-11-07T00:00:00.000Z')
     expect(missed.at(-1)?.scheduledAt.toISOString()).toBe('2026-11-21T00:00:00.000Z')
     expect(missed.at(-1)?.occurrenceKey).toBe('7:2026-11-21')
+  })
+
+  it('backfills the current schedule beyond 14 days without inventing pre-schedule doses', () => {
+    const missed = missedDosesToRecord([med()], [], now, tz)
+    expect(missed[0]?.scheduledAt.toISOString()).toBe('2026-10-01T00:00:00.000Z')
+    expect(missed).toHaveLength(52)
+  })
+
+  it('only backfills saved, unresolved doses from before archival', () => {
+    const archive = {
+      at: new Date('2026-10-25T00:00:00Z'),
+      reminderTimes: [new Date('2026-10-21T00:00:00Z'), new Date('2026-10-24T00:00:00Z'), new Date('2026-10-30T00:00:00Z')],
+    }
+    const logs = [
+      { medicationId: 7, status: 'scheduled', scheduledAt: new Date('2026-10-20T00:00:00Z') },
+      { medicationId: 7, status: 'taken', scheduledAt: new Date('2026-10-21T00:00:00Z') },
+    ]
+    const archived = { ...med({ updatedAt: archive.at }), archive }
+    expect(missedDosesToRecord([archived], logs, now, tz).map((dose) => dose.scheduledAt.toISOString())).toEqual([
+      '2026-10-20T00:00:00.000Z', '2026-10-24T00:00:00.000Z',
+    ])
   })
 
   it('does not record doses scheduled before the medication was added or last changed', () => {
