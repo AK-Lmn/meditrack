@@ -1,14 +1,15 @@
 import { afterEach, expect, it, vi } from 'vitest'
 
-type ResetMailer = (input: { user: { email: string }, url: string }) => Promise<void>
+type ResetMailer = (input: { user: { id: string; email: string }, url: string }) => Promise<void>
 
-const { configureAuth, after } = vi.hoisted(() => ({
+const { configureAuth, after, query } = vi.hoisted(() => ({
   configureAuth: vi.fn<(options: { emailAndPassword: { sendResetPassword?: ResetMailer } }) => void>(),
   after: vi.fn<(callback: () => Promise<void>) => void>(),
+  query: vi.fn(),
 }))
 
 vi.mock('better-auth', () => ({ betterAuth: configureAuth }))
-vi.mock('@/lib/db', () => ({ pool: {} }))
+vi.mock('@/lib/db', () => ({ pool: { query } }))
 vi.mock('next/server', () => ({ after }))
 
 afterEach(() => {
@@ -28,12 +29,13 @@ it.each([
   vi.stubEnv('MEDITRACK_AUTH_EMAIL_FROM', 'recovery@example.test')
   const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response())
   vi.stubGlobal('fetch', fetch)
+  query.mockResolvedValueOnce({ rowCount: 1 })
 
   const { passwordResetEnabled } = await import('@/lib/auth')
   const resetUrl = 'https://app.example.test/api/auth/reset-password/synthetic-token'
   const send = configureAuth.mock.calls[0][0].emailAndPassword.sendResetPassword
   expect(passwordResetEnabled).toBe(true)
-  await send!({ user: { email: 'recipient@example.test' }, url: resetUrl })
+  await send!({ user: { id: 'test-user', email: 'recipient@example.test' }, url: resetUrl })
   expect(fetch).not.toHaveBeenCalled()
   await after.mock.calls[0][0]()
 
@@ -47,4 +49,20 @@ it.each([
     subject: 'Reset your MediTrack password',
     text: expect.stringContaining(resetUrl),
   })
+})
+
+it('suppresses delivery when the account cooldown is already claimed', async () => {
+  vi.resetModules()
+  vi.stubEnv('AGENTMAIL_API_KEY', 'agent-test')
+  vi.stubEnv('MEDITRACK_AUTH_AGENTMAIL_INBOX', 'recovery@example.test')
+  const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response())
+  vi.stubGlobal('fetch', fetch)
+  query.mockResolvedValueOnce({ rowCount: 0 })
+  await import('@/lib/auth')
+
+  const send = configureAuth.mock.calls[0][0].emailAndPassword.sendResetPassword!
+  await send({ user: { id: 'test-user', email: 'recipient@example.test' }, url: 'https://app.example.test/reset' })
+  expect(query).not.toHaveBeenCalled()
+  await after.mock.calls[0][0]()
+  expect(fetch).not.toHaveBeenCalled()
 })
