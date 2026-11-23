@@ -30,7 +30,7 @@ it('offers Singapore in the timezone selector', () => {
   const dashboard = createElement(Dashboard, {
     medications: [], archivedMedications: [], doses: [],
     user: { name: 'Test User', email: 'test@example.test' },
-    initialTimezone: 'UTC', initialGreeting: null, initialLocalDate: null, initialNow: 0,
+    initialTimezone: 'UTC', initialNow: 0,
   })
   const markup = renderToStaticMarkup(createElement(ThemeProvider, { children: dashboard }))
   expect(markup.match(/<select[^>]*aria-label="Timezone"[^>]*>[\s\S]*?<\/select>/)?.[0]).toContain('value="Asia/Singapore"')

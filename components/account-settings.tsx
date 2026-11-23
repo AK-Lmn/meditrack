@@ -9,8 +9,8 @@ import { FieldErrorMessage, fieldErrorAttributes, useFieldErrors } from '@/compo
 import { passwordRules, validNewPassword } from '@/lib/account-rules'
 import { authClient, signOutCurrentDevice } from '@/lib/auth-client'
 
-const panel = 'rounded-2xl border border-[#e5eaf1] bg-white p-5 dark:border-[#254258] dark:bg-[#132b3b]'
-const save = 'app-focus min-h-11 rounded-lg bg-[#1e7b8c] px-4 text-sm font-bold text-white disabled:opacity-60'
+const panel = 'rounded-2xl border border-[#c4d7cf] bg-white p-5 dark:border-[#48675a] dark:bg-[#1c3029]'
+const save = 'app-focus min-h-11 rounded-lg bg-[#155b48] px-4 text-sm font-bold text-white disabled:opacity-60'
 type Feedback = { text: string; error?: boolean }
 
 function FormFeedback({ feedback }: { feedback: Feedback | null }) {
@@ -127,9 +127,9 @@ function DeleteAccount() {
     <Dialog.Root onOpenChange={() => { if (!pending) { setFeedback(null); fields.clear() } }}>
       <Dialog.Trigger className="app-focus mt-3 min-h-11 rounded-lg border border-red-300 px-4 text-sm font-bold text-red-700 dark:text-red-200">Delete account</Dialog.Trigger>
       <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-[60] bg-[#18243a]/45 backdrop-blur-sm" />
+        <Dialog.Backdrop className="fixed inset-0 z-[60] bg-[#15302b]/45 backdrop-blur-sm" />
         <Dialog.Viewport className="fixed inset-0 z-[61] flex items-center justify-center p-4">
-          <Dialog.Popup className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl outline-none dark:bg-[#132b3b]">
+          <Dialog.Popup className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl outline-none dark:bg-[#1c3029]">
             <Dialog.Title className="text-lg font-bold">Permanently delete your account?</Dialog.Title>
             <Dialog.Description className="mt-2 text-sm">This removes your profile, medications, dose history, and reminders, and signs out all sessions.</Dialog.Description>
             <form noValidate onSubmit={submit} className="mt-4 space-y-3">

@@ -59,13 +59,13 @@ export function useTheme() {
 export function ThemeSelect({ compact = false }: { compact?: boolean }) {
   const { theme, setTheme } = useTheme()
   return (
-    <label className="text-xs font-semibold text-[#5c6d80] dark:text-[#b9d1df]">
+    <label className="text-xs font-semibold text-[#5c6d80] dark:text-[#b4d0c5]">
       <span className={compact ? 'sr-only' : ''}>Theme</span>
       <select
         aria-label="Color theme"
         value={theme}
         onChange={e => setTheme(e.target.value as Theme)}
-        className={`${compact ? '' : 'ml-2'} h-10 rounded-lg border border-[#dfe6ec] bg-white px-2 text-xs text-[#18243a] outline-none focus:border-[#84B3CE] dark:border-[#315069] dark:bg-[#173247] dark:text-[#f5eedd]`}
+        className={`${compact ? '' : 'ml-2'} h-10 rounded-lg border border-[#c4d7cf] bg-white px-2 text-xs text-[#15302b] outline-none focus:border-[#9de6ca] dark:border-[#48675a] dark:bg-[#284739] dark:text-[#ecf8f2]`}
       >
         <option value="system">System</option>
         <option value="light">Light</option>

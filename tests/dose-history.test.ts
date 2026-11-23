@@ -23,6 +23,6 @@ describe('dose records in the dashboard views', () => {
     const html = renderToStaticMarkup(createElement(DoseAnalytics, { doses, timezone, today: '2026-11-22' }))
     expect(html).toContain('1 of 2 recorded doses taken (50%).')
     expect(html).toContain('1/2 taken')
-    expect(html).toContain('width:50%')
+    expect(html).toContain('height:50%')
   })
 })

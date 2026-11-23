@@ -3,7 +3,7 @@ import { db } from '@/lib/db'
 import { medicationLogs, medicationSchedules, medications, notificationSettings } from '@/lib/db/schema'
 import { addDaysToDateString, formatLocalDate, generateDailyOccurrences } from '@/lib/scheduler'
 import { dosesScheduledFrom } from '@/lib/missed-doses'
-import { formatDateForTimeZone, getGreetingForTimeZone } from '@/lib/timezone-display'
+import { formatDateForTimeZone } from '@/lib/timezone-display'
 import { and, eq } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
@@ -67,5 +67,5 @@ async function renderDashboard(measureTiming: boolean) {
       totalMs: Math.round(preparedAt - startedAt),
     })
   }
-  return <MediTrackDashboard key={session.user.id} medications={scheduledMedications} archivedMedications={archived} doses={doses} user={{ name: session.user.name, email: session.user.email }} initialTimezone={timezone} initialGreeting={getGreetingForTimeZone(timezone, now)} initialLocalDate={localDate} initialNow={now.getTime()} />
+  return <MediTrackDashboard key={session.user.id} medications={scheduledMedications} archivedMedications={archived} doses={doses} user={{ name: session.user.name, email: session.user.email }} initialTimezone={timezone} initialNow={now.getTime()} />
 }

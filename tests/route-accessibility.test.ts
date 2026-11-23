@@ -23,10 +23,10 @@ it('renders the workspace route name as its main heading', () => {
   const dashboard = createElement(MediTrackDashboard, {
     medications: [], archivedMedications: [], doses: [],
     user: { name: 'Test User', email: 'test@example.test' },
-    initialTimezone: 'UTC', initialGreeting: null, initialLocalDate: null, initialNow: 0,
+    initialTimezone: 'UTC', initialNow: 0,
   })
   const markup = renderToStaticMarkup(createElement(ThemeProvider, { children: dashboard }))
-  expect(markup).toMatch(/<h1[^>]*>Medicines/)
+  expect(markup).toMatch(/<h1[^>]*>Medications/)
   expect(markup).toMatch(/<main[^>]*id="main-content"[^>]*tabindex="-1"/i)
 })
 
