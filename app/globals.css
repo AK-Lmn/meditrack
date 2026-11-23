@@ -48,16 +48,17 @@
 
 :root {
   color-scheme: light;
-  --copy-muted: #5b6b7e;
+  --weekbook-wash: #d9ede4;
+  --copy-muted: #415e57;
   --field-border: #718096;
-  --app-focus-ring: #286e85;
-  --background: #f6f8fb;
-  --foreground: #18243a;
-  --card: oklch(1 0 0);
+  --app-focus-ring: #155b48;
+  --background: #edf5f2;
+  --foreground: #15302b;
+  --card: #fbfdfa;
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
+  --primary: #155b48;
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
@@ -66,7 +67,7 @@
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
+  --border: #c4d7cf;
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
   --chart-1: oklch(0.87 0 0);
@@ -87,14 +88,15 @@
 
 .dark {
   color-scheme: dark;
-  --app-focus-ring: #84b3ce;
-  --background: #0d2230;
-  --foreground: #f5eedd;
-  --card: #132b3b;
-  --card-foreground: #f5eedd;
-  --popover: #132b3b;
-  --popover-foreground: #f5eedd;
-  --primary: oklch(0.922 0 0);
+    --weekbook-wash: #284739;
+  --app-focus-ring: #9de6ca;
+  --background: #14241f;
+  --foreground: #ecf8f2;
+  --card: #1c3029;
+  --card-foreground: #ecf8f2;
+  --popover: #1c3029;
+  --popover-foreground: #ecf8f2;
+  --primary: #9de6ca;
   --primary-foreground: oklch(0.205 0 0);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
@@ -103,7 +105,7 @@
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
+  --border: #48675a;
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
   --chart-1: oklch(0.87 0 0);
@@ -124,14 +126,15 @@
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
     color-scheme: dark;
-    --app-focus-ring: #84b3ce;
-    --background: #0d2230;
-    --foreground: #f5eedd;
-    --card: #132b3b;
-    --card-foreground: #f5eedd;
-    --popover: #132b3b;
-    --popover-foreground: #f5eedd;
-    --primary: oklch(0.922 0 0);
+    --weekbook-wash: #284739;
+    --app-focus-ring: #9de6ca;
+    --background: #14241f;
+    --foreground: #ecf8f2;
+    --card: #1c3029;
+    --card-foreground: #ecf8f2;
+    --popover: #1c3029;
+    --popover-foreground: #ecf8f2;
+    --primary: #9de6ca;
     --primary-foreground: oklch(0.205 0 0);
     --secondary: oklch(0.269 0 0);
     --secondary-foreground: oklch(0.985 0 0);
@@ -140,7 +143,7 @@
     --accent: oklch(0.269 0 0);
     --accent-foreground: oklch(0.985 0 0);
     --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
+    --border: #48675a;
     --input: oklch(1 0 0 / 15%);
     --ring: oklch(0.556 0 0);
     --chart-1: oklch(0.87 0 0);
@@ -209,4 +212,79 @@
 
 .animate-loading-bar {
   animation: loading-bar 1.2s infinite ease-in-out;
+}
+
+.weekbook-title {
+  font-size: clamp(1.8rem, 4vw, 2.55rem);
+  font-weight: 720;
+  line-height: 1.1;
+  letter-spacing: -0.045em;
+}
+
+.weekbook-link,
+.weekbook-action {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 0.4rem;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.8125rem;
+  font-weight: 650;
+}
+
+.weekbook-link:hover,
+.weekbook-link[aria-current='page'] {
+  background: var(--weekbook-wash);
+  color: var(--primary);
+}
+
+.weekbook-action,
+.weekbook-day[aria-pressed='true'] {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.weekbook-action:hover:not(:disabled) {
+  filter: brightness(0.94);
+}
+
+.weekbook-action:disabled {
+  opacity: 0.65;
+}
+
+.weekbook-day {
+  display: grid;
+  justify-items: center;
+  gap: 0.2rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--card);
+  padding: 0.55rem 0;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.weekbook-day strong {
+  font-size: 1.15rem;
+}
+
+.weekbook-detail {
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--primary);
+  background: var(--card);
+}
+
+.weekbook-row {
+  display: flex;
+  min-height: 3.8rem;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  padding: 0.65rem 0;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
 }

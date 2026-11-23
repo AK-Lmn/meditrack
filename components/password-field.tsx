@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { FieldErrorMessage, fieldErrorAttributes, type FieldError } from '@/components/field-errors'
 
-export const authInput = 'app-focus min-h-11 w-full rounded-lg border border-[#dfe6ec] bg-white px-3 text-sm dark:border-[#315069] dark:bg-[#173247] dark:text-[#f5eedd]'
+export const authInput = 'app-focus min-h-11 w-full rounded-lg border border-[#c4d7cf] bg-white px-3 text-sm dark:border-[#48675a] dark:bg-[#284739] dark:text-[#ecf8f2]'
 
 export function PasswordField({ label, name, autoComplete, descriptionId, error }: { label: string; name: string; autoComplete: 'current-password' | 'new-password'; descriptionId?: string; error?: FieldError }) {
   const [visible, setVisible] = useState(false)

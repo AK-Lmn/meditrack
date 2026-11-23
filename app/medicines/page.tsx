@@ -1,5 +1,5 @@
 import { DashboardPage } from '../dashboard-page'
 
-export const metadata = { title: "Medicines" }
+export const metadata = { title: "Medications" }
 
 export default DashboardPage

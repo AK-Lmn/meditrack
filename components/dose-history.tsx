@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { calculateAdherenceScore, type AdherenceInputRecord } from '@/lib/adherence'
+import { calculateAdherenceScore, calculateStreak, type AdherenceInputRecord } from '@/lib/adherence'
 import { addDaysToDateString, formatLocalDate, localDatetimeToUtc } from '@/lib/scheduler'
 
 export type DoseHistoryEntry = AdherenceInputRecord & {
@@ -14,8 +14,8 @@ export type DoseHistoryEntry = AdherenceInputRecord & {
 const statusLabels: Record<string, string> = {
   scheduled: 'Scheduled', taken: 'Taken', missed: 'Missed', skipped: 'Skipped',
 }
-const panel = 'rounded-2xl border border-[#e5eaf1] bg-white p-5 dark:border-[#254258] dark:bg-[#132b3b]'
-const field = 'app-focus min-h-11 w-full rounded-lg border border-[#e3e8ee] bg-[#fbfcfd] px-3 text-sm dark:border-[#315069] dark:bg-[#173247]'
+const panel = 'rounded-2xl border border-[#c4d7cf] bg-white p-5 dark:border-[#48675a] dark:bg-[#1c3029]'
+const field = 'app-focus min-h-11 w-full rounded-lg border border-[#e3e8ee] bg-[#fbfcfd] px-3 text-sm dark:border-[#48675a] dark:bg-[#284739]'
 
 export function DoseHistory({ doses, timezone, recent = false }: { doses: DoseHistoryEntry[]; timezone: string; recent?: boolean }) {
   const [query, setQuery] = useState('')
@@ -48,7 +48,7 @@ export function DoseHistory({ doses, timezone, recent = false }: { doses: DoseHi
     {rows.length ? <ul className="mt-4 space-y-2">
       {rows.map((dose) => {
         const scheduled = new Date(dose.scheduledAt)
-        return <li key={dose.id} className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-[#edf0f4] p-3 text-sm dark:border-[#315069]">
+        return <li key={dose.id} className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-[#d8e5df] p-3 text-sm dark:border-[#48675a]">
           <div className="min-w-0 break-words">
             <div className="font-semibold">{dose.name}{dose.dosage && ` · ${dose.dosage}`}</div>
             <time dateTime={scheduled.toISOString()}>Scheduled {format.format(scheduled)}</time>
@@ -67,21 +67,26 @@ export function DoseAnalytics({ doses, today, timezone }: { doses: DoseHistoryEn
   const byDate = new Map(dates.map((date) => [date, [] as DoseHistoryEntry[]]))
   for (const dose of doses) byDate.get(formatLocalDate(new Date(dose.scheduledAt), timezone))?.push(dose)
   const total = calculateAdherenceScore(Array.from(byDate.values()).flat())
+  const streak = calculateStreak(doses, localDatetimeToUtc(today, '12:00', timezone), timezone)
 
   return <section className={panel}>
     <h2 className="text-base font-bold">Adherence over the last 7 days</h2>
     <p className="mt-2 text-sm">{total.totalScheduled ? `${total.takenCount} of ${total.totalScheduled} recorded doses taken (${total.adherenceRate}%).` : 'No doses recorded in this period.'}</p>
-    <ul aria-label="Daily adherence chart" className="mt-5 space-y-3">
+    <ul aria-label="Daily adherence chart" className="mt-5 grid grid-cols-7 gap-2 sm:gap-4">
       {dates.map((date) => {
         const day = calculateAdherenceScore(byDate.get(date) ?? [])
-        return <li key={date} className="grid grid-cols-[6rem_minmax(0,1fr)_auto] items-center gap-2 text-xs sm:gap-4 sm:text-sm">
-          <time dateTime={date}>{formatDay.format(localDatetimeToUtc(date, '12:00', timezone))}</time>
-          <div aria-hidden="true" className="h-3 overflow-hidden rounded-full bg-[#edf0f4] dark:bg-[#0d2230]">
-            <div className="h-full rounded-full bg-[#1e7b8c] dark:bg-[#75c6c0]" style={{ width: `${day.adherenceRate}%` }} />
+        return <li key={date} className="grid justify-items-center gap-2 text-xs">
+          <div aria-hidden="true" className="flex h-24 w-full items-end overflow-hidden rounded bg-background sm:h-36">
+            <div className="w-full rounded bg-primary" style={{ height: `${day.adherenceRate}%` }} />
           </div>
-          <span className="text-right tabular-nums">{day.totalScheduled ? `${day.takenCount}/${day.totalScheduled} taken` : 'No records'}</span>
+          <time dateTime={date} aria-label={formatDay.format(localDatetimeToUtc(date, '12:00', timezone))}>{Number(date.slice(-2))}</time>
+          <span className="tabular-nums" aria-label={day.totalScheduled ? day.takenCount + "/" + day.totalScheduled + " taken" : undefined}>{day.totalScheduled ? `${day.takenCount}/${day.totalScheduled}` : <><span aria-hidden="true">—</span><span className="sr-only">No records</span></>}</span>
         </li>
       })}
     </ul>
+    <dl className="mt-5 border-t border-border">
+      <div className="weekbook-row"><dt>Missed recorded doses</dt><dd>{total.missedCount}</dd></div>
+      <div className="weekbook-row"><dt>Current streak</dt><dd>{streak.currentStreak} {streak.currentStreak === 1 ? 'day' : 'days'}</dd></div>
+    </dl>
   </section>
 }
