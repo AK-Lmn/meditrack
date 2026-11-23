@@ -14,6 +14,7 @@ import { DoseAnalytics, DoseHistory, type DoseHistoryEntry } from '@/components/
 import { ThemeSelect } from '@/components/theme-provider'
 import { signOutCurrentDevice } from '@/lib/auth-client'
 import { calculateStreak } from '@/lib/adherence'
+import { measureDashboardReady } from '@/lib/dashboard-timing'
 import { getDailyDoseState, summarizeDailyAdherence } from '@/lib/daily-dose-state'
 import { addDaysToDateString, formatLocalDate, getDoseDisplayStatus, localDatetimeToUtc, MISSED_DOSE_WINDOW_MS, type DoseDisplayStatus, type ScheduledOccurrence } from '@/lib/scheduler'
 import { formatDateForTimeZone, getGreetingForTimeZone, supportedTimezones, type TimeOfDayGreeting } from '@/lib/timezone-display'
@@ -45,6 +46,17 @@ const nav = [
 export default function MediTrackDashboard({ medications: initialMedications, archivedMedications, doses, user, initialTimezone, initialGreeting, initialLocalDate, initialNow }: { medications: Medication[]; archivedMedications: MedicationSummary[]; doses: DoseHistoryEntry[]; user: { name: string; email: string }; initialTimezone: string | null; initialGreeting: TimeOfDayGreeting | null; initialLocalDate: string | null; initialNow: number }) {
   const pathname = usePathname()
   const router = useRouter()
+  useEffect(() => {
+    if (pathname !== '/') return
+    let paintedFrame = 0
+    const frame = requestAnimationFrame(() => {
+      paintedFrame = requestAnimationFrame(() => measureDashboardReady())
+    })
+    return () => {
+      cancelAnimationFrame(frame)
+      cancelAnimationFrame(paintedFrame)
+    }
+  }, [pathname])
   const activeLabel = nav.find((item) => item[1] === pathname)?.[0] ?? 'Dashboard'
   const [showAdd, setShowAdd] = useState(false)
   const [editCandidate, setEditCandidate] = useState<Medication | null>(null)
