@@ -1,4 +1,5 @@
 import { betterAuth } from 'better-auth'
+import { createHash } from 'node:crypto'
 import { APIError } from 'better-auth/api'
 import { pool } from '@/lib/db'
 import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from '@/lib/account-rules'
@@ -20,10 +21,24 @@ const resetSender = agentMailKey && agentMailInbox
 
 export const passwordResetEnabled = Boolean(resetSender)
 
-function sendAuthEmail(to: string, subject: string, text: string) {
+async function claimPasswordResetEmail(userId: string) {
+  const key = `reset-email:${createHash('sha256').update(userId).digest('hex')}`
+  const { rowCount } = await pool.query(
+    `INSERT INTO "rateLimit" ("id", "key", "count", "lastRequest")
+     VALUES ($1, $1, 1, floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint)
+     ON CONFLICT ("key") DO UPDATE SET "lastRequest" = EXCLUDED."lastRequest"
+     WHERE "rateLimit"."lastRequest" <= EXCLUDED."lastRequest" - 60000
+     RETURNING "id"`,
+    [key],
+  )
+  return rowCount === 1
+}
+
+function sendAuthEmail(to: string, subject: string, text: string, shouldSend?: () => Promise<boolean>) {
   const sender = resetSender
   if (!sender) throw new APIError('SERVICE_UNAVAILABLE', { message: 'Email delivery is unavailable.' })
   after(async () => {
+    if (shouldSend && !await shouldSend()) return
     const response = await fetch(sender.url, {
       method: 'POST',
       headers: { Authorization: `Bearer ${sender.key}`, 'Content-Type': 'application/json' },
@@ -55,7 +70,12 @@ export const auth = betterAuth({
     revokeSessionsOnPasswordReset: true,
     ...(resetSender ? {
       sendResetPassword: async ({ user, url }) => {
-        sendAuthEmail(user.email, 'Reset your MediTrack password', `Reset your MediTrack password: ${url}\n\nIf you did not request this, you can ignore this email.`)
+        sendAuthEmail(
+          user.email,
+          'Reset your MediTrack password',
+          `Reset your MediTrack password: ${url}\n\nIf you did not request this, you can ignore this email.`,
+          () => claimPasswordResetEmail(user.id),
+        )
       },
     } : {}),
   },
