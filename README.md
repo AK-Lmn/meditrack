@@ -1,5 +1,7 @@
 # MediTrack
 
+> **Status: Paused** — Active development on this project is currently paused.
+
 A full-stack medication tracker, scheduling engine, and reminder application designed to simplify personal care plan management.
 
 MediTrack allows users to schedule medications across daily target times, recurring intervals, and multi-day cycles, log daily doses, track adherence streaks and completion, monitor inventory depletion, and receive background reminders through browser push notifications even when the web application is closed.
